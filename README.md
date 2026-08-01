@@ -28,6 +28,16 @@ Copy `.env.example` to `.env` and set `VITE_ANTHROPIC_API_KEY` to enable live
 Future-Self AI feedback. Without a key, the app uses structured mock
 diagnostics — the status badge in the header shows which mode is active.
 
+## Mobile & PWA
+
+The app is installable on iOS and Android home screens (`public/manifest.json`,
+touch icons, `display: standalone`) and registers a lightweight service
+worker (`public/sw.js`, production builds only) that caches core static
+assets while always hitting the network for Anthropic API calls. Layouts
+stack to a single column through the `md` breakpoint, form inputs use a
+16px minimum font size to prevent iOS Safari auto-zoom, and interactive
+controls use 44px-minimum tap targets.
+
 ## Scripts
 
 - `npm run dev` — start the dev server

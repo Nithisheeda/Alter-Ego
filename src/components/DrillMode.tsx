@@ -49,8 +49,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Structured Speech Drill</h2>
             <p className="mt-1 text-sm text-white/50">
@@ -64,7 +64,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
               handleNewAttempt()
             }}
             disabled={recording}
-            className="rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-sm text-white focus:border-violet-400/50 focus:outline-none"
+            className="min-h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-base text-white focus:border-violet-400/50 focus:outline-none sm:w-auto"
           >
             {PASSAGES.map((p) => (
               <option key={p.id} value={p.id} className="bg-[#16161e]">
@@ -74,7 +74,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           </select>
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-black/20 p-5 text-[15px] leading-relaxed text-white/80">
+        <div className="min-h-[140px] rounded-xl border border-white/10 bg-black/20 p-4 text-[15px] leading-relaxed text-white/80 sm:p-5">
           {passage.text}
         </div>
         <p className="mt-2 text-xs text-white/30">{passageWordCount} words</p>
@@ -83,12 +83,12 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           <AudioWave levels={drill.levels} active={recording} />
         </div>
 
-        <div className="mt-5 flex flex-wrap items-center gap-3">
+        <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           {drill.status === 'idle' || drill.status === 'error' ? (
             <button
               type="button"
               onClick={drill.start}
-              className="flex items-center gap-2 rounded-lg bg-violet-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-violet-400 active:scale-[0.98]"
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-400 active:scale-[0.98] sm:w-auto sm:justify-start"
             >
               <span className="h-2 w-2 rounded-full bg-white" />
               Start Recording
@@ -97,7 +97,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
             <button
               type="button"
               onClick={drill.stop}
-              className="recording-ring flex items-center gap-2 rounded-lg bg-rose-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-400 active:scale-[0.98]"
+              className="recording-ring flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-rose-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-rose-400 active:scale-[0.98] sm:w-auto sm:justify-start"
             >
               <span className="h-2 w-2 rounded-sm bg-white" />
               Stop Recording
@@ -106,7 +106,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
             <button
               type="button"
               disabled
-              className="rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white/50"
+              className="min-h-11 w-full rounded-lg bg-white/10 px-5 py-3 text-sm font-medium text-white/50 sm:w-auto"
             >
               {drill.status === 'requesting' ? 'Requesting microphone…' : 'Processing…'}
             </button>
@@ -114,7 +114,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
             <button
               type="button"
               onClick={handleNewAttempt}
-              className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/5"
+              className="min-h-11 w-full rounded-lg border border-white/15 px-5 py-3 text-sm font-medium text-white/80 transition hover:bg-white/5 sm:w-auto"
             >
               Try Again
             </button>
@@ -131,7 +131,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
         </div>
 
         {drill.metrics && (
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <MetricBadge
               label="Words / Min"
               value={String(drill.metrics.wpm)}
@@ -153,7 +153,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
               type="button"
               onClick={handleRequestFeedback}
               disabled={feedbackLoading || !personaReady}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-11 w-full rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
             >
               {feedbackLoading ? 'Consulting your Future-Self…' : 'Get Future-Self Feedback'}
             </button>

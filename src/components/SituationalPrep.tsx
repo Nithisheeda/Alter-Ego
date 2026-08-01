@@ -39,7 +39,7 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
         <h2 className="text-lg font-semibold text-white">Situational Mindset Prep</h2>
         <p className="mt-1 text-sm text-white/50">
           Describe the high-stakes moment ahead of you. Type it or drop it in by voice — your
@@ -52,7 +52,7 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
               key={prompt}
               type="button"
               onClick={() => setScenario(prompt + ': ')}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60 transition hover:border-violet-400/40 hover:text-white"
+              className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-white/60 transition hover:border-violet-400/40 hover:text-white"
             >
               {prompt}
             </button>
@@ -65,14 +65,14 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
             onChange={(e) => setScenario(e.target.value)}
             placeholder="Walk me through what's coming up — who's in the room, what's at stake, what you're afraid will happen…"
             rows={6}
-            className="w-full resize-none rounded-xl border border-white/10 bg-black/30 p-4 pr-12 text-sm leading-relaxed text-white placeholder:text-white/25 focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/50"
+            className="min-h-[160px] w-full resize-none rounded-xl border border-white/10 bg-black/30 p-4 pr-14 text-base leading-relaxed text-white placeholder:text-white/25 focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/50"
           />
           {dictation.supported && (
             <button
               type="button"
               onClick={dictation.toggle}
               title={dictation.listening ? 'Stop voice input' : 'Speak instead of typing'}
-              className={`absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition ${
+              className={`absolute right-2.5 top-2.5 flex h-11 w-11 items-center justify-center rounded-full border transition ${
                 dictation.listening
                   ? 'recording-ring border-rose-400/40 bg-rose-500/20 text-rose-300'
                   : 'border-white/15 bg-white/5 text-white/60 hover:text-white'
@@ -83,12 +83,12 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
           )}
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
           <button
             type="button"
             onClick={handleSubmit}
             disabled={!scenario.trim() || loading || !personaReady}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="min-h-11 w-full rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
             {loading ? 'Consulting your Future-Self…' : 'Ask My Future-Self'}
           </button>

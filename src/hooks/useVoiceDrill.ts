@@ -29,6 +29,15 @@ function countWords(text: string): number {
     .filter(Boolean).length
 }
 
+function createRecognition(Ctor: NonNullable<Window['SpeechRecognition']> | undefined) {
+  if (!Ctor) return null
+  const recognition = new Ctor()
+  recognition.continuous = true
+  recognition.interimResults = true
+  recognition.lang = 'en-US'
+  return recognition
+}
+
 export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [status, setStatus] = useState<DrillStatus>('idle')
   const [levels, setLevels] = useState<number[]>(() => new Array(BAR_COUNT).fill(0.05))
@@ -39,22 +48,13 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
-  const recognitionRef = useRef<ReturnType<typeof createRecognition> | null>(null)
+  const recognitionRef = useRef<NonNullable<ReturnType<typeof createRecognition>> | null>(null)
   const startTimeRef = useRef<number>(0)
   const transcriptRef = useRef<string>('')
   const resultTimestampsRef = useRef<number[]>([])
 
   const SpeechRecognitionCtor =
     typeof window !== 'undefined' ? window.SpeechRecognition ?? window.webkitSpeechRecognition : undefined
-
-  function createRecognition() {
-    if (!SpeechRecognitionCtor) return null
-    const recognition = new SpeechRecognitionCtor()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = 'en-US'
-    return recognition
-  }
 
   const tickLevels = useCallback(() => {
     const analyser = analyserRef.current
@@ -103,7 +103,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       audioCtxRef.current = audioCtx
       analyserRef.current = analyser
 
-      const recognition = createRecognition()
+      const recognition = createRecognition(SpeechRecognitionCtor)
       recognitionRef.current = recognition
       if (recognition) {
         recognition.onresult = (event) => {
@@ -140,7 +140,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       )
       cleanupAudio()
     }
-  }, [cleanupAudio, tickLevels])
+  }, [SpeechRecognitionCtor, cleanupAudio, tickLevels])
 
   const stop = useCallback(() => {
     if (status !== 'recording') return

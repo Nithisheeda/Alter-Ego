@@ -1,6 +1,6 @@
 import type { FutureSelfFeedback, FutureSelfPersona, SpeechMetrics } from '../types'
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined
+const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY?.trim() || undefined
 const MODEL = 'claude-sonnet-4-5'
 const API_URL = 'https://api.anthropic.com/v1/messages'
 

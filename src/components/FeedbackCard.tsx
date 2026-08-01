@@ -9,7 +9,7 @@ export function FeedbackCard({ feedback, persona }: FeedbackCardProps) {
   const name = persona.name.trim() || 'Your Future-Self'
 
   return (
-    <div className="animate-fade-in-up rounded-2xl border border-violet-400/20 bg-gradient-to-b from-violet-500/[0.07] to-transparent p-6">
+    <div className="animate-fade-in-up rounded-2xl border border-violet-400/20 bg-gradient-to-b from-violet-500/[0.07] to-transparent p-4 sm:p-6">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-500/20 text-sm font-semibold text-violet-300">

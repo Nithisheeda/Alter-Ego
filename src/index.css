@@ -10,6 +10,15 @@ body,
   height: 100%;
 }
 
+@layer base {
+  /* 16px minimum keeps iOS Safari from auto-zooming the viewport on focus. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 body {
   margin: 0;
   background: #0a0a0f;

@@ -23,8 +23,8 @@ function App() {
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(139,92,246,0.12),_transparent_60%)]" />
 
-      <div className="relative mx-auto max-w-4xl px-4 py-10 sm:px-6">
-        <header className="mb-8 flex items-start justify-between gap-4">
+      <div className="relative mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+        <header className="mb-6 flex flex-col items-start gap-4 lg:mb-8 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-violet-400">
               Engine 2
@@ -44,7 +44,7 @@ function App() {
           <PersonaBuilder persona={persona} onChange={handlePersonaChange} />
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-1.5">
-            <div className="flex gap-1">
+            <div className="flex flex-col gap-1 sm:flex-row">
               <TabButton active={tab === 'drill'} onClick={() => setTab('drill')}>
                 Structured Speech Drill
               </TabButton>
@@ -82,7 +82,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+      className={`min-h-11 flex-1 rounded-xl px-4 py-3 text-sm font-medium transition ${
         active ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20' : 'text-white/50 hover:text-white/80'
       }`}
     >
