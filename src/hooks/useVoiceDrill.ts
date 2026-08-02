@@ -15,9 +15,10 @@ interface UseVoiceDrillResult {
   status: DrillStatus
   levels: number[]
   errorMessage: string | null
+  transcriptionWarning: string | null
   metrics: SpeechMetrics | null
   hasSpeechRecognition: boolean
-  start: () => Promise<void>
+  start: () => void
   stop: () => void
   reset: () => void
 }
@@ -38,10 +39,32 @@ function createRecognition(Ctor: NonNullable<Window['SpeechRecognition']> | unde
   return recognition
 }
 
+function describeMediaError(err: unknown): string {
+  if (err instanceof DOMException) {
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'Microphone access is blocked. Open Settings → Safari → Microphone (or your browser\'s site settings) and allow access, then try again.'
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'No microphone was found on this device.'
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'Your microphone is already in use by another app. Close it and try again.'
+      case 'SecurityError':
+        return 'Microphone access requires a secure (https) connection.'
+      default:
+        return `Microphone access failed: ${err.message || err.name}`
+    }
+  }
+  return err instanceof Error ? `Microphone access failed: ${err.message}` : 'Microphone access failed.'
+}
+
 export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [status, setStatus] = useState<DrillStatus>('idle')
   const [levels, setLevels] = useState<number[]>(() => new Array(BAR_COUNT).fill(0.05))
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [transcriptionWarning, setTranscriptionWarning] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<SpeechMetrics | null>(null)
 
   const streamRef = useRef<MediaStream | null>(null)
@@ -83,18 +106,16 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     analyserRef.current = null
   }, [])
 
-  const start = useCallback(async () => {
-    setErrorMessage(null)
-    setMetrics(null)
-    setStatus('requesting')
-    transcriptRef.current = ''
-    resultTimestampsRef.current = []
-
+  // Kicks off the mic-stream + analyser pipeline that drives the wave visualizer.
+  // Separate from SpeechRecognition so a transcription failure never blocks recording.
+  const startAudioPipeline = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
 
-      const AudioCtx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const AudioCtx =
+        window.AudioContext ??
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       const audioCtx = new AudioCtx()
       const source = audioCtx.createMediaStreamSource(stream)
       const analyser = audioCtx.createAnalyser()
@@ -103,44 +124,75 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       audioCtxRef.current = audioCtx
       analyserRef.current = analyser
 
-      const recognition = createRecognition(SpeechRecognitionCtor)
-      recognitionRef.current = recognition
-      if (recognition) {
-        recognition.onresult = (event) => {
-          resultTimestampsRef.current.push(performance.now())
-          let finalChunk = ''
-          const results = event.results as unknown as ArrayLike<RecognitionResultLike>
-          for (let i = event.resultIndex; i < results.length; i++) {
-            const result = results[i]
-            if (result.isFinal) {
-              finalChunk += result[0].transcript + ' '
-            }
-          }
-          if (finalChunk) transcriptRef.current += finalChunk
-        }
-        recognition.onerror = () => {
-          // Non-fatal: recognition can drop out (network, silence) while audio keeps recording.
-        }
-        try {
-          recognition.start()
-        } catch {
-          recognitionRef.current = null
-        }
-      }
-
       startTimeRef.current = performance.now()
       setStatus('recording')
       tickLevels()
     } catch (err) {
       setStatus('error')
-      setErrorMessage(
-        err instanceof Error
-          ? `Microphone access failed: ${err.message}`
-          : 'Microphone access failed.',
-      )
+      setErrorMessage(describeMediaError(err))
       cleanupAudio()
+      recognitionRef.current?.abort()
+      recognitionRef.current = null
     }
-  }, [SpeechRecognitionCtor, cleanupAudio, tickLevels])
+  }, [cleanupAudio, tickLevels])
+
+  // Must be called synchronously inside the tap/click handler — iOS WebKit only
+  // grants webkitSpeechRecognition.start() a microphone prompt when it runs
+  // inside the original user-gesture call stack, not after an awaited promise.
+  const start = useCallback(() => {
+    setErrorMessage(null)
+    setTranscriptionWarning(null)
+    setMetrics(null)
+    setStatus('requesting')
+    transcriptRef.current = ''
+    resultTimestampsRef.current = []
+
+    const recognition = createRecognition(SpeechRecognitionCtor)
+    recognitionRef.current = recognition
+
+    if (recognition) {
+      recognition.onresult = (event) => {
+        resultTimestampsRef.current.push(performance.now())
+        let finalChunk = ''
+        const results = event.results as unknown as ArrayLike<RecognitionResultLike>
+        for (let i = event.resultIndex; i < results.length; i++) {
+          const result = results[i]
+          if (result.isFinal) {
+            finalChunk += result[0].transcript + ' '
+          }
+        }
+        if (finalChunk) transcriptRef.current += finalChunk
+      }
+      recognition.onerror = (event) => {
+        switch (event.error) {
+          case 'no-speech':
+          case 'aborted':
+            return
+          case 'not-allowed':
+          case 'service-not-allowed':
+            recognitionRef.current = null
+            setTranscriptionWarning(
+              'Speech-to-text permission was blocked — recording continues, but pace will be estimated instead of measured.',
+            )
+            return
+          default:
+            setTranscriptionWarning(
+              'Speech-to-text dropped out — recording continues, but pace may be estimated instead of measured.',
+            )
+        }
+      }
+      try {
+        recognition.start()
+      } catch {
+        recognitionRef.current = null
+        setTranscriptionWarning(
+          'Speech-to-text could not start — recording continues, but pace will be estimated instead of measured.',
+        )
+      }
+    }
+
+    void startAudioPipeline()
+  }, [SpeechRecognitionCtor, startAudioPipeline])
 
   const stop = useCallback(() => {
     if (status !== 'recording') return
@@ -187,6 +239,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     recognitionRef.current = null
     setStatus('idle')
     setErrorMessage(null)
+    setTranscriptionWarning(null)
     setMetrics(null)
     setLevels(new Array(BAR_COUNT).fill(0.05))
   }, [cleanupAudio])
@@ -195,6 +248,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     status,
     levels,
     errorMessage,
+    transcriptionWarning,
     metrics,
     hasSpeechRecognition: Boolean(SpeechRecognitionCtor),
     start,

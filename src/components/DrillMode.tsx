@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { PASSAGES } from '../lib/passages'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
@@ -23,6 +23,7 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const drill = useVoiceDrill(passageWordCount)
   const [feedback, setFeedback] = useState<FutureSelfFeedback | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
 
@@ -43,13 +44,15 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   }
 
   function handleNewAttempt() {
+    // Keeps the selected passage — only the recorder/metrics/feedback reset.
     drill.reset()
     setFeedback(null)
+    drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
+      <div ref={drillCardRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Structured Speech Drill</h2>
@@ -125,10 +128,26 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
               Voice-to-text unavailable in this browser — WPM will be estimated from passage length.
             </span>
           )}
-          {drill.errorMessage && (
-            <span className="text-xs text-rose-300">{drill.errorMessage}</span>
-          )}
         </div>
+
+        {drill.errorMessage && (
+          <div className="mt-4 flex flex-col items-start gap-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-rose-200">{drill.errorMessage}</p>
+            <button
+              type="button"
+              onClick={drill.start}
+              className="min-h-11 w-full shrink-0 rounded-lg border border-rose-300/40 px-4 py-2.5 text-sm font-medium text-rose-100 transition hover:bg-rose-500/20 sm:w-auto"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {drill.transcriptionWarning && (
+          <p className="mt-4 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+            {drill.transcriptionWarning}
+          </p>
+        )}
 
         {drill.metrics && (
           <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -166,7 +185,9 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
         )}
       </div>
 
-      {feedback && <FeedbackCard feedback={feedback} persona={persona} />}
+      {feedback && (
+        <FeedbackCard feedback={feedback} persona={persona} onTryAgain={handleNewAttempt} />
+      )}
     </div>
   )
 }

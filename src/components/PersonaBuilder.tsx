@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import type { FutureSelfPersona } from '../types'
-import { isPersonaComplete } from '../lib/storage'
+import { isPersonaComplete, parsePersonaJson, personaExportFilename } from '../lib/storage'
 
 interface PersonaBuilderProps {
   persona: FutureSelfPersona
@@ -36,6 +36,9 @@ const FIELDS: Array<{
 export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
   const [draft, setDraft] = useState(persona)
   const [savedPulse, setSavedPulse] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importPulse, setImportPulse] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => setDraft(persona), [persona])
 
@@ -49,6 +52,45 @@ export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
     onChange(draft)
     setSavedPulse(true)
     setTimeout(() => setSavedPulse(false), 1600)
+  }
+
+  function handleExport() {
+    const blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = personaExportFilename(draft)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportClick() {
+    setImportError(null)
+    fileInputRef.current?.click()
+  }
+
+  function handleImportFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const imported = parsePersonaJson(String(reader.result))
+        setDraft(imported)
+        onChange(imported)
+        setImportError(null)
+        setImportPulse(true)
+        setTimeout(() => setImportPulse(false), 1600)
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : 'Could not import that file.')
+      }
+    }
+    reader.onerror = () => setImportError('Could not read that file.')
+    reader.readAsText(file)
   }
 
   return (
@@ -110,12 +152,39 @@ export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
         >
           Save Persona
         </button>
+        <button
+          type="button"
+          onClick={handleExport}
+          className="min-h-11 rounded-lg border border-white/15 px-5 py-3 text-sm font-medium text-white/80 transition hover:bg-white/5"
+        >
+          Export Persona
+        </button>
+        <button
+          type="button"
+          onClick={handleImportClick}
+          className="min-h-11 rounded-lg border border-white/15 px-5 py-3 text-sm font-medium text-white/80 transition hover:bg-white/5"
+        >
+          Import Persona
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleImportFile}
+          className="hidden"
+        />
         {savedPulse && (
           <span className="animate-fade-in-up text-xs font-medium text-emerald-300">
             Saved to this device ✓
           </span>
         )}
+        {importPulse && (
+          <span className="animate-fade-in-up text-xs font-medium text-emerald-300">
+            Persona imported and saved ✓
+          </span>
+        )}
       </div>
+      {importError && <p className="mt-3 text-xs text-rose-300">{importError}</p>}
     </div>
   )
 }

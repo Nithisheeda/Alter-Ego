@@ -82,6 +82,9 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
             </button>
           )}
         </div>
+        {dictation.error && (
+          <p className="mt-2 text-xs text-amber-300/80">{dictation.error}</p>
+        )}
 
         <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
           <button

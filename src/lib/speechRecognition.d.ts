@@ -13,6 +13,22 @@ interface SpeechRecognitionEventLike extends Event {
   }
 }
 
+type SpeechRecognitionErrorCode =
+  | 'no-speech'
+  | 'aborted'
+  | 'audio-capture'
+  | 'network'
+  | 'not-allowed'
+  | 'service-not-allowed'
+  | 'bad-grammar'
+  | 'language-not-supported'
+  | (string & {})
+
+interface SpeechRecognitionErrorEventLike extends Event {
+  error: SpeechRecognitionErrorCode
+  message: string
+}
+
 interface SpeechRecognitionLike extends EventTarget {
   continuous: boolean
   interimResults: boolean
@@ -21,7 +37,7 @@ interface SpeechRecognitionLike extends EventTarget {
   stop(): void
   abort(): void
   onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: Event) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
   onend: (() => void) | null
   onstart: (() => void) | null
 }

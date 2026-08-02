@@ -3,9 +3,10 @@ import type { FutureSelfFeedback, FutureSelfPersona } from '../types'
 interface FeedbackCardProps {
   feedback: FutureSelfFeedback
   persona: FutureSelfPersona
+  onTryAgain?: () => void
 }
 
-export function FeedbackCard({ feedback, persona }: FeedbackCardProps) {
+export function FeedbackCard({ feedback, persona, onTryAgain }: FeedbackCardProps) {
   const name = persona.name.trim() || 'Your Future-Self'
 
   return (
@@ -49,7 +50,38 @@ export function FeedbackCard({ feedback, persona }: FeedbackCardProps) {
           emphasized
         />
       </div>
+
+      {onTryAgain && (
+        <div className="mt-6 border-t border-white/10 pt-5">
+          <button
+            type="button"
+            onClick={onTryAgain}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-400 active:scale-[0.98]"
+          >
+            <RetryIcon />
+            Try Again — New Take
+          </button>
+        </div>
+      )}
     </div>
+  )
+}
+
+function RetryIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 1 2.64 6.36" />
+      <path d="M3 21v-6h6" />
+    </svg>
   )
 }
 
