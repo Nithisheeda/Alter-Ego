@@ -12,6 +12,12 @@ export const DEFAULT_PERSONA: FutureSelfPersona = {
   mantra: '',
 }
 
+export type PassagePart =
+  | { type: 'text'; text: string }
+  | { type: 'power'; text: string }
+  | { type: 'diction'; text: string }
+  | { type: 'pause'; seconds: number }
+
 export interface SpeechMetrics {
   wordCount: number
   durationSeconds: number

@@ -1,12 +1,16 @@
 import { useMemo, useRef, useState } from 'react'
-import { PASSAGES } from '../lib/passages'
+import { CUSTOM_PASSAGE_ID, PASSAGES, passageWordCount } from '../lib/passages'
+import { autoAnnotate } from '../lib/autoAnnotate'
+import { analyzeDelivery } from '../lib/vocalAnalysis'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
 import { AudioPlayback } from './AudioPlayback'
+import { PassageDisplay } from './PassageDisplay'
 import { MetricBadge } from './MetricBadge'
+import { VocalAnalysisCard } from './VocalAnalysisCard'
 import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
-import type { FutureSelfFeedback, FutureSelfPersona } from '../types'
+import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
 
 interface DrillModeProps {
   persona: FutureSelfPersona
@@ -14,29 +18,42 @@ interface DrillModeProps {
 }
 
 export function DrillMode({ persona, personaReady }: DrillModeProps) {
-  const [passageId, setPassageId] = useState(PASSAGES[0].id)
-  const passage = useMemo(() => PASSAGES.find((p) => p.id === passageId)!, [passageId])
-  const passageWordCount = useMemo(
-    () => passage.text.trim().split(/\s+/).filter(Boolean).length,
-    [passage],
-  )
+  const [passageId, setPassageId] = useState<string>(PASSAGES[0].id)
+  const [customDraft, setCustomDraft] = useState('')
+  const [customParts, setCustomParts] = useState<PassagePart[] | null>(null)
 
-  const drill = useVoiceDrill(passageWordCount)
+  const isCustom = passageId === CUSTOM_PASSAGE_ID
+  const builtInPassage = useMemo(() => PASSAGES.find((p) => p.id === passageId), [passageId])
+  const activePassage = useMemo(() => {
+    if (isCustom) return customParts ? { title: 'Custom Drill', parts: customParts } : null
+    return builtInPassage ? { title: builtInPassage.title, parts: builtInPassage.parts } : null
+  }, [isCustom, customParts, builtInPassage])
+
+  const activeWordCount = activePassage ? passageWordCount(activePassage.parts) : 0
+
+  const drill = useVoiceDrill(activeWordCount)
   const [feedback, setFeedback] = useState<FutureSelfFeedback | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
+  const canRecord = Boolean(activePassage) && !recording
+
+  const analysis = useMemo(
+    () => (activePassage && drill.metrics ? analyzeDelivery(activePassage.parts, drill.metrics) : null),
+    [activePassage, drill.metrics],
+  )
 
   async function handleRequestFeedback() {
-    if (!drill.metrics) return
+    if (!drill.metrics || !activePassage) return
     setFeedbackLoading(true)
     setFeedback(null)
     try {
       const result = await generateFeedback(persona, {
         kind: 'drill',
-        passageTitle: passage.title,
+        passageTitle: activePassage.title,
         metrics: drill.metrics,
+        analysis: analysis ?? undefined,
       })
       setFeedback(result)
     } finally {
@@ -51,6 +68,22 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  function handlePassageChange(nextId: string) {
+    setPassageId(nextId)
+    handleNewAttempt()
+  }
+
+  function handleAnnotate() {
+    if (!customDraft.trim()) return
+    setCustomParts(autoAnnotate(customDraft))
+    handleNewAttempt()
+  }
+
+  function handleEditScript() {
+    setCustomParts(null)
+    handleNewAttempt()
+  }
+
   return (
     <div className="space-y-6">
       <div ref={drillCardRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
@@ -58,15 +91,12 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           <div>
             <h2 className="text-lg font-semibold text-white">Structured Speech Drill</h2>
             <p className="mt-1 text-sm text-white/50">
-              Read the passage aloud. Your Future-Self is listening for pace and hesitation.
+              Read the passage aloud. Your Future-Self is listening for pace, pause discipline, and diction.
             </p>
           </div>
           <select
             value={passageId}
-            onChange={(e) => {
-              setPassageId(e.target.value)
-              handleNewAttempt()
-            }}
+            onChange={(e) => handlePassageChange(e.target.value)}
             disabled={recording}
             className="min-h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-base text-white focus:border-violet-400/50 focus:outline-none sm:w-auto"
           >
@@ -75,13 +105,49 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
                 {p.title}
               </option>
             ))}
+            <option value={CUSTOM_PASSAGE_ID} className="bg-[#16161e]">
+              Custom Drill
+            </option>
           </select>
         </div>
 
-        <div className="min-h-[140px] rounded-xl border border-white/10 bg-black/20 p-4 text-[15px] leading-relaxed text-white/80 sm:p-5">
-          {passage.text}
-        </div>
-        <p className="mt-2 text-xs text-white/30">{passageWordCount} words</p>
+        {isCustom && !customParts ? (
+          <div>
+            <textarea
+              value={customDraft}
+              onChange={(e) => setCustomDraft(e.target.value)}
+              placeholder="Paste your keynote, pitch, or meeting script here — we'll auto-mark pauses, power words, and tricky diction."
+              rows={7}
+              className="min-h-[180px] w-full resize-none rounded-xl border border-white/10 bg-black/30 p-4 text-base leading-relaxed text-white placeholder:text-white/25 focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/50"
+            />
+            <button
+              type="button"
+              onClick={handleAnnotate}
+              disabled={!customDraft.trim()}
+              className="mt-3 min-h-11 w-full rounded-lg bg-violet-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            >
+              Annotate &amp; Use This Script
+            </button>
+          </div>
+        ) : activePassage ? (
+          <div>
+            <PassageDisplay parts={activePassage.parts} />
+            {isCustom && (
+              <button
+                type="button"
+                onClick={handleEditScript}
+                disabled={recording}
+                className="mt-2 text-xs font-medium text-violet-300 underline decoration-violet-400/40 underline-offset-2 transition hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Edit script
+              </button>
+            )}
+          </div>
+        ) : null}
+
+        {activePassage && (
+          <p className="mt-2 text-xs text-white/30">{activeWordCount} words</p>
+        )}
 
         <div className="mt-5">
           <AudioWave levels={drill.levels} active={recording} />
@@ -92,7 +158,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
             <button
               type="button"
               onClick={drill.start}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-400 active:scale-[0.98] sm:w-auto sm:justify-start"
+              disabled={!canRecord}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-5 py-3 text-sm font-medium text-white transition hover:bg-violet-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:justify-start"
             >
               <span className="h-2 w-2 rounded-full bg-white" />
               Start Recording
@@ -186,6 +253,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
         )}
       </div>
 
+      {analysis && <VocalAnalysisCard analysis={analysis} />}
+
       {drill.audioUrl && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
           <h3 className="mb-3 text-sm font-semibold text-white">Re-listen to your delivery</h3>
@@ -199,3 +268,4 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     </div>
   )
 }
+

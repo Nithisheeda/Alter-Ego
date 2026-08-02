@@ -1,4 +1,5 @@
 import type { FutureSelfFeedback, FutureSelfPersona, SpeechMetrics } from '../types'
+import type { DeliveryAnalysis } from './vocalAnalysis'
 
 const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY?.trim() || undefined
 const MODEL = 'claude-sonnet-4-5'
@@ -10,6 +11,7 @@ interface DrillContext {
   kind: 'drill'
   passageTitle: string
   metrics: SpeechMetrics
+  analysis?: DeliveryAnalysis
 }
 
 interface SituationalContext {
@@ -35,15 +37,26 @@ Respond with valid JSON only, matching this exact shape, no markdown fences:
 function userMessage(context: FeedbackContext): string {
   if (context.kind === 'drill') {
     const m = context.metrics
-    return `I just finished a speech drill reading "${context.passageTitle}".
+    const a = context.analysis
+    const analysisBlock = a
+      ? `
+Scientific vocal mechanics breakdown (scripted markup vs. what I actually did):
+- Pause discipline: ${a.pauseDiscipline.label}${a.pauseDiscipline.score !== null ? ` (${a.pauseDiscipline.score}/100)` : ''} — ${a.pauseDiscipline.note}
+- Diction & clarity: ${a.dictionClarity.label}${a.dictionClarity.score !== null ? ` (${a.dictionClarity.score}/100)` : ''} — ${a.dictionClarity.note}
+- Pacing & WPM: ${a.pacing.label}${a.pacing.score !== null ? ` (${a.pacing.score}/100)` : ''} — ${a.pacing.note}
+${a.overallScore !== null ? `- Overall mechanics score: ${a.overallScore}/100` : ''}`
+      : ''
+
+    return `I just finished a speech drill reading "${context.passageTitle}", which has scripted pause markers, power-word emphasis targets, and flagged tricky consonant clusters.
 Metrics:
 - Words per minute: ${m.wpm}
 - Total duration: ${m.durationSeconds}s
 - Pause count: ${m.pauseCount} (${m.pauseFrequencyPerMin}/min)
 - Longest pause: ${m.longestPauseSeconds}s
 ${m.transcript ? `Transcript: "${m.transcript}"` : '(No transcript captured — voice recognition unavailable on this device.)'}
+${analysisBlock}
 
-Give me feedback as my Future-Self.`
+Give me feedback as my Future-Self, grounded in the vocal mechanics breakdown above where it's available.`
   }
   return `I have an upcoming high-stakes situation I need to mentally prepare for:
 
@@ -109,25 +122,33 @@ function mockFeedback(persona: FutureSelfPersona, context: FeedbackContext): Fut
 
   if (context.kind === 'drill') {
     const m = context.metrics
+    const a = context.analysis
     const paceNote =
       m.wpm > 165
         ? `You hit ${m.wpm} WPM — that's a rushed pace, the kind that shows up when silence feels unsafe.`
         : m.wpm < 110
           ? `You dropped to ${m.wpm} WPM — that's under-energized, more hesitant than deliberate.`
           : `You held ${m.wpm} WPM — a controlled, conversational pace.`
-    const pauseNote =
-      m.pauseCount > 4
+    const pauseNote = a
+      ? a.pauseDiscipline.note
+      : m.pauseCount > 4
         ? `${m.pauseCount} pauses in ${m.durationSeconds}s tells me you're second-guessing mid-sentence instead of finishing your thought.`
         : m.pauseCount === 0
           ? `Zero real pauses — you're powering through without ever letting a point land.`
           : `${m.pauseCount} pauses is reasonable, but the longest ran ${m.longestPauseSeconds}s — check whether that one was intentional or just nerves.`
+    const dictionNote =
+      a && a.dictionClarity.missedWords.length > 0
+        ? ` And the script flagged ${a.dictionClarity.missedWords.join(', ')} for a reason — ${a.dictionClarity.note.toLowerCase()}`
+        : ''
 
     return {
-      realityCheck: `${paceNote} ${pauseNote}`,
+      realityCheck: `${paceNote} ${pauseNote}${dictionNote}`,
       tacticalAdjustment:
-        m.wpm > 165
-          ? `Drop your shoulders and add a full second of silence after your opening line before you continue — that pause is not dead air, it's authority.`
-          : `Plant your feet, exhale before you start the next sentence, and speak the last three words of each sentence slower than the rest.`,
+        a && a.dictionClarity.missedWords.length > 0
+          ? `Slow down specifically on ${a.dictionClarity.missedWords[0]} — over-articulate the consonant cluster on your next pass until it's automatic.`
+          : m.wpm > 165
+            ? `Drop your shoulders and add a full second of silence after your opening line before you continue — that pause is not dead air, it's authority.`
+            : `Plant your feet, exhale before you start the next sentence, and speak the last three words of each sentence slower than the rest.`,
       mindsetReframe: `${name} does not fill silence to feel safe — ${name} lets it work. "${mantra}" That's the standard now, not the exception.`,
       source: 'mock',
     }
