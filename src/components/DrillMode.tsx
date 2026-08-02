@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { PASSAGES } from '../lib/passages'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
+import { AudioPlayback } from './AudioPlayback'
 import { MetricBadge } from './MetricBadge'
 import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
@@ -184,6 +185,13 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           </div>
         )}
       </div>
+
+      {drill.audioUrl && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
+          <h3 className="mb-3 text-sm font-semibold text-white">Re-listen to your delivery</h3>
+          <AudioPlayback audioUrl={drill.audioUrl} />
+        </div>
+      )}
 
       {feedback && (
         <FeedbackCard feedback={feedback} persona={persona} onTryAgain={handleNewAttempt} />

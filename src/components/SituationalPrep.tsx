@@ -2,13 +2,30 @@ import { useState } from 'react'
 import { generateFeedback } from '../lib/ai'
 import { useDictation } from '../hooks/useDictation'
 import { FeedbackCard } from './FeedbackCard'
+import { AudioPlayback } from './AudioPlayback'
 import type { FutureSelfFeedback, FutureSelfPersona } from '../types'
 
-const PROMPTS = [
-  'Pitching to investors',
-  'Having a hard team conversation',
-  'Negotiating a raise',
-  'Delivering bad news to a client',
+const SCENARIO_PRESETS = [
+  {
+    label: 'Pricing Pushback',
+    prompt:
+      "A key client just called our pricing 'unacceptable' and hinted they might walk. I need to hold firm on value without sounding defensive or panicked.",
+  },
+  {
+    label: 'Board Update',
+    prompt:
+      "I'm delivering a board update in twenty minutes and the metrics are below plan. I need to own the miss and present the recovery plan with total conviction.",
+  },
+  {
+    label: 'Team Hard Truth',
+    prompt:
+      "I have to tell someone on my team their performance isn't where it needs to be, and this conversation has been avoided for too long.",
+  },
+  {
+    label: 'Investor Q&A',
+    prompt:
+      "I'm about to open the floor for investor Q&A after my pitch, and I know they're going to press hard on our burn rate and slower-than-projected growth.",
+  },
 ]
 
 interface SituationalPrepProps {
@@ -46,15 +63,15 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
           Future-Self will reframe it.
         </p>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {PROMPTS.map((prompt) => (
+        <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {SCENARIO_PRESETS.map((preset) => (
             <button
-              key={prompt}
+              key={preset.label}
               type="button"
-              onClick={() => setScenario(prompt + ': ')}
-              className="min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-white/60 transition hover:border-violet-400/40 hover:text-white"
+              onClick={() => setScenario(preset.prompt)}
+              className="min-h-11 shrink-0 whitespace-nowrap rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-xs text-white/60 transition hover:border-violet-400/40 hover:text-white"
             >
-              {prompt}
+              {preset.label}
             </button>
           ))}
         </div>
@@ -100,6 +117,13 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
           )}
         </div>
       </div>
+
+      {dictation.audioUrl && (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
+          <h3 className="mb-3 text-sm font-semibold text-white">Re-listen to your voice note</h3>
+          <AudioPlayback audioUrl={dictation.audioUrl} label="Your voice note" />
+        </div>
+      )}
 
       {feedback && <FeedbackCard feedback={feedback} persona={persona} />}
     </div>

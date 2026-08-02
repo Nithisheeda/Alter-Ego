@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpeechMetrics } from '../types'
+import { describeMediaError, pickSupportedAudioMimeType } from '../lib/audioRecording'
+import { vibrate } from '../lib/haptics'
 
 const PAUSE_THRESHOLD_SECONDS = 1.2
 const BAR_COUNT = 24
@@ -17,6 +19,7 @@ interface UseVoiceDrillResult {
   errorMessage: string | null
   transcriptionWarning: string | null
   metrics: SpeechMetrics | null
+  audioUrl: string | null
   hasSpeechRecognition: boolean
   start: () => void
   stop: () => void
@@ -39,42 +42,29 @@ function createRecognition(Ctor: NonNullable<Window['SpeechRecognition']> | unde
   return recognition
 }
 
-function describeMediaError(err: unknown): string {
-  if (err instanceof DOMException) {
-    switch (err.name) {
-      case 'NotAllowedError':
-      case 'PermissionDeniedError':
-        return 'Microphone access is blocked. Open Settings → Safari → Microphone (or your browser\'s site settings) and allow access, then try again.'
-      case 'NotFoundError':
-      case 'DevicesNotFoundError':
-        return 'No microphone was found on this device.'
-      case 'NotReadableError':
-      case 'TrackStartError':
-        return 'Your microphone is already in use by another app. Close it and try again.'
-      case 'SecurityError':
-        return 'Microphone access requires a secure (https) connection.'
-      default:
-        return `Microphone access failed: ${err.message || err.name}`
-    }
-  }
-  return err instanceof Error ? `Microphone access failed: ${err.message}` : 'Microphone access failed.'
-}
-
 export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [status, setStatus] = useState<DrillStatus>('idle')
   const [levels, setLevels] = useState<number[]>(() => new Array(BAR_COUNT).fill(0.05))
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [transcriptionWarning, setTranscriptionWarning] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<SpeechMetrics | null>(null)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
 
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
   const recognitionRef = useRef<NonNullable<ReturnType<typeof createRecognition>> | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const startTimeRef = useRef<number>(0)
   const transcriptRef = useRef<string>('')
   const resultTimestampsRef = useRef<number[]>([])
+  const audioUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    audioUrlRef.current = audioUrl
+  }, [audioUrl])
 
   const SpeechRecognitionCtor =
     typeof window !== 'undefined' ? window.SpeechRecognition ?? window.webkitSpeechRecognition : undefined
@@ -96,18 +86,29 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     rafRef.current = requestAnimationFrame(tickLevels)
   }, [])
 
-  const cleanupAudio = useCallback(() => {
+  // Stops the visualizer (rAF + analyser) without touching the live mic
+  // stream, so an in-flight MediaRecorder can still flush its last chunk.
+  const stopVisuals = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     rafRef.current = null
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
     audioCtxRef.current?.close().catch(() => {})
     audioCtxRef.current = null
     analyserRef.current = null
   }, [])
 
-  // Kicks off the mic-stream + analyser pipeline that drives the wave visualizer.
-  // Separate from SpeechRecognition so a transcription failure never blocks recording.
+  const stopMediaStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+  }, [])
+
+  const cleanupAudio = useCallback(() => {
+    stopVisuals()
+    stopMediaStream()
+  }, [stopVisuals, stopMediaStream])
+
+  // Kicks off the mic-stream + analyser pipeline that drives the wave visualizer,
+  // plus a MediaRecorder capturing the take for playback afterward. Separate from
+  // SpeechRecognition so a transcription failure never blocks recording.
   const startAudioPipeline = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -123,6 +124,20 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       source.connect(analyser)
       audioCtxRef.current = audioCtx
       analyserRef.current = analyser
+
+      audioChunksRef.current = []
+      try {
+        const mimeType = pickSupportedAudioMimeType()
+        const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) audioChunksRef.current.push(event.data)
+        }
+        mediaRecorderRef.current = recorder
+        recorder.start()
+      } catch {
+        // Playback just won't be available; the drill itself is unaffected.
+        mediaRecorderRef.current = null
+      }
 
       startTimeRef.current = performance.now()
       setStatus('recording')
@@ -140,9 +155,14 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   // grants webkitSpeechRecognition.start() a microphone prompt when it runs
   // inside the original user-gesture call stack, not after an awaited promise.
   const start = useCallback(() => {
+    vibrate([50])
     setErrorMessage(null)
     setTranscriptionWarning(null)
     setMetrics(null)
+    setAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
     setStatus('requesting')
     transcriptRef.current = ''
     resultTimestampsRef.current = []
@@ -196,12 +216,29 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
 
   const stop = useCallback(() => {
     if (status !== 'recording') return
+    vibrate([50, 50])
     setStatus('processing')
     const endTime = performance.now()
     const durationSeconds = Math.max(0.5, (endTime - startTimeRef.current) / 1000)
 
     recognitionRef.current?.stop()
-    cleanupAudio()
+    stopVisuals()
+
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
+        audioChunksRef.current = []
+        setAudioUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return blob.size > 0 ? URL.createObjectURL(blob) : null
+        })
+        stopMediaStream()
+      }
+      recorder.stop()
+    } else {
+      stopMediaStream()
+    }
 
     const transcript = transcriptRef.current.trim()
     const timestamps = resultTimestampsRef.current
@@ -231,17 +268,34 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       transcript: usedFallback ? '' : transcript,
     })
     setStatus('done')
-  }, [cleanupAudio, fallbackWordCount, status])
+  }, [fallbackWordCount, status, stopMediaStream, stopVisuals])
 
   const reset = useCallback(() => {
     cleanupAudio()
     recognitionRef.current?.abort()
     recognitionRef.current = null
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
     setStatus('idle')
     setErrorMessage(null)
     setTranscriptionWarning(null)
     setMetrics(null)
     setLevels(new Array(BAR_COUNT).fill(0.05))
+    setAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }, [cleanupAudio])
+
+  useEffect(() => {
+    return () => {
+      cleanupAudio()
+      recognitionRef.current?.abort()
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
+    }
   }, [cleanupAudio])
 
   return {
@@ -250,6 +304,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     errorMessage,
     transcriptionWarning,
     metrics,
+    audioUrl,
     hasSpeechRecognition: Boolean(SpeechRecognitionCtor),
     start,
     stop,
