@@ -2,9 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SpeechMetrics } from '../types'
 import { describeMediaError, pickSupportedAudioMimeType } from '../lib/audioRecording'
 import { vibrate } from '../lib/haptics'
+import {
+  autocorrelatePitch,
+  isMonotoneWindow,
+  sampleVolume,
+  SAMPLE_INTERVAL_MS,
+  type DynamicsSample,
+} from '../lib/pitchAnalysis'
 
 const PAUSE_THRESHOLD_SECONDS = 1.2
 const BAR_COUNT = 24
+const PITCH_FFT_SIZE = 2048
 
 type RecognitionResultLike = {
   isFinal: boolean
@@ -20,6 +28,7 @@ interface UseVoiceDrillResult {
   transcriptionWarning: string | null
   metrics: SpeechMetrics | null
   audioUrl: string | null
+  monotoneWarning: boolean
   hasSpeechRecognition: boolean
   start: () => void
   stop: () => void
@@ -49,10 +58,15 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [transcriptionWarning, setTranscriptionWarning] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<SpeechMetrics | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [monotoneWarning, setMonotoneWarning] = useState(false)
 
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
+  const pitchAnalyserRef = useRef<AnalyserNode | null>(null)
+  const pitchBufferRef = useRef<Float32Array<ArrayBuffer> | null>(null)
+  const dynamicsHistoryRef = useRef<DynamicsSample[]>([])
+  const lastPitchSampleAtRef = useRef(0)
   const rafRef = useRef<number | null>(null)
   const recognitionRef = useRef<NonNullable<ReturnType<typeof createRecognition>> | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -60,29 +74,51 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const startTimeRef = useRef<number>(0)
   const transcriptRef = useRef<string>('')
   const resultTimestampsRef = useRef<number[]>([])
-  const audioUrlRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    audioUrlRef.current = audioUrl
-  }, [audioUrl])
 
   const SpeechRecognitionCtor =
     typeof window !== 'undefined' ? window.SpeechRecognition ?? window.webkitSpeechRecognition : undefined
 
+  // Runs on every animation frame while recording: redraws the coarse bar
+  // visualizer, and — throttled to a few times a second — samples the
+  // higher-resolution pitch analyser to update the rolling monotone check.
   const tickLevels = useCallback(() => {
     const analyser = analyserRef.current
-    if (!analyser) return
-    const data = new Uint8Array(analyser.frequencyBinCount)
-    analyser.getByteFrequencyData(data)
-    const chunk = Math.floor(data.length / BAR_COUNT) || 1
-    const next: number[] = []
-    for (let i = 0; i < BAR_COUNT; i++) {
-      let sum = 0
-      for (let j = 0; j < chunk; j++) sum += data[i * chunk + j] ?? 0
-      const avg = sum / chunk / 255
-      next.push(Math.max(0.05, Math.min(1, avg * 1.6)))
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      analyser.getByteFrequencyData(data)
+      const chunk = Math.floor(data.length / BAR_COUNT) || 1
+      const next: number[] = []
+      for (let i = 0; i < BAR_COUNT; i++) {
+        let sum = 0
+        for (let j = 0; j < chunk; j++) sum += data[i * chunk + j] ?? 0
+        const avg = sum / chunk / 255
+        next.push(Math.max(0.05, Math.min(1, avg * 1.6)))
+      }
+      setLevels(next)
     }
-    setLevels(next)
+
+    const pitchAnalyser = pitchAnalyserRef.current
+    const now = performance.now()
+    if (pitchAnalyser && now - lastPitchSampleAtRef.current >= SAMPLE_INTERVAL_MS) {
+      lastPitchSampleAtRef.current = now
+      if (!pitchBufferRef.current || pitchBufferRef.current.length !== pitchAnalyser.fftSize) {
+        pitchBufferRef.current = new Float32Array(pitchAnalyser.fftSize)
+      }
+      const buffer = pitchBufferRef.current
+      pitchAnalyser.getFloatTimeDomainData(buffer)
+
+      const sampleRate = audioCtxRef.current?.sampleRate ?? 48000
+      const pitchHz = autocorrelatePitch(buffer, sampleRate)
+      const volume = sampleVolume(buffer)
+
+      const history = dynamicsHistoryRef.current
+      history.push({ time: now, pitchHz, volume })
+      const windowStart = now - 5000
+      while (history.length > 0 && history[0].time < windowStart) history.shift()
+
+      setMonotoneWarning(isMonotoneWindow(history, now))
+    }
+
     rafRef.current = requestAnimationFrame(tickLevels)
   }, [])
 
@@ -94,6 +130,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     audioCtxRef.current?.close().catch(() => {})
     audioCtxRef.current = null
     analyserRef.current = null
+    pitchAnalyserRef.current = null
   }, [])
 
   const stopMediaStream = useCallback(() => {
@@ -124,6 +161,18 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       source.connect(analyser)
       audioCtxRef.current = audioCtx
       analyserRef.current = analyser
+
+      // A second, higher-resolution analyser tapped off the same source —
+      // fftSize 256 is too coarse to resolve speaking-range pitch, but
+      // reusing the source node means no extra mic stream or permission.
+      const pitchAnalyser = audioCtx.createAnalyser()
+      pitchAnalyser.fftSize = PITCH_FFT_SIZE
+      source.connect(pitchAnalyser)
+      pitchAnalyserRef.current = pitchAnalyser
+      pitchBufferRef.current = null
+      dynamicsHistoryRef.current = []
+      lastPitchSampleAtRef.current = 0
+      setMonotoneWarning(false)
 
       audioChunksRef.current = []
       try {
@@ -159,10 +208,10 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     setErrorMessage(null)
     setTranscriptionWarning(null)
     setMetrics(null)
-    setAudioUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    // Note: does not revoke the previous audioUrl — ownership of completed
+    // takes' object URLs transfers to the caller (e.g. a take-history list),
+    // which is responsible for revoking them when it's done with them.
+    setAudioUrl(null)
     setStatus('requesting')
     transcriptRef.current = ''
     resultTimestampsRef.current = []
@@ -218,6 +267,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     if (status !== 'recording') return
     vibrate([50, 50])
     setStatus('processing')
+    setMonotoneWarning(false)
     const endTime = performance.now()
     const durationSeconds = Math.max(0.5, (endTime - startTimeRef.current) / 1000)
 
@@ -229,10 +279,8 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       recorder.onstop = () => {
         const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' })
         audioChunksRef.current = []
-        setAudioUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev)
-          return blob.size > 0 ? URL.createObjectURL(blob) : null
-        })
+        // Ownership transfers to the caller — see the note in start().
+        setAudioUrl(blob.size > 0 ? URL.createObjectURL(blob) : null)
         stopMediaStream()
       }
       recorder.stop()
@@ -281,10 +329,9 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     setTranscriptionWarning(null)
     setMetrics(null)
     setLevels(new Array(BAR_COUNT).fill(0.05))
-    setAudioUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    setMonotoneWarning(false)
+    // Does not revoke — see the note in start().
+    setAudioUrl(null)
   }, [cleanupAudio])
 
   useEffect(() => {
@@ -294,7 +341,6 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current)
     }
   }, [cleanupAudio])
 
@@ -305,6 +351,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     transcriptionWarning,
     metrics,
     audioUrl,
+    monotoneWarning,
     hasSpeechRecognition: Boolean(SpeechRecognitionCtor),
     start,
     stop,

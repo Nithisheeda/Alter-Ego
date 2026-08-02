@@ -1,16 +1,22 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CUSTOM_PASSAGE_ID, PASSAGES, passageWordCount } from '../lib/passages'
 import { autoAnnotate } from '../lib/autoAnnotate'
 import { analyzeDelivery } from '../lib/vocalAnalysis'
+import { createTakeId, revokeTakeAudio, type Take } from '../lib/takes'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
 import { AudioPlayback } from './AudioPlayback'
 import { PassageDisplay } from './PassageDisplay'
+import { Teleprompter } from './Teleprompter'
 import { MetricBadge } from './MetricBadge'
 import { VocalAnalysisCard } from './VocalAnalysisCard'
+import { TakeHistoryList } from './TakeHistoryList'
+import { TakeComparisonCard } from './TakeComparisonCard'
 import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
 import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
+
+const DEFAULT_TARGET_WPM = 130
 
 interface DrillModeProps {
   persona: FutureSelfPersona
@@ -21,6 +27,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const [passageId, setPassageId] = useState<string>(PASSAGES[0].id)
   const [customDraft, setCustomDraft] = useState('')
   const [customParts, setCustomParts] = useState<PassagePart[] | null>(null)
+  const [teleprompterMode, setTeleprompterMode] = useState(false)
+  const [targetWpm, setTargetWpm] = useState(DEFAULT_TARGET_WPM)
 
   const isCustom = passageId === CUSTOM_PASSAGE_ID
   const builtInPassage = useMemo(() => PASSAGES.find((p) => p.id === passageId), [passageId])
@@ -43,6 +51,85 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     () => (activePassage && drill.metrics ? analyzeDelivery(activePassage.parts, drill.metrics) : null),
     [activePassage, drill.metrics],
   )
+
+  // Live elapsed-time ticker driving the teleprompter's auto-scroll pace —
+  // independent of useVoiceDrill's own duration bookkeeping since this only
+  // needs to be a smooth visual guide, not the metric source of truth.
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  useEffect(() => {
+    if (!recording) {
+      setElapsedSeconds(0)
+      return
+    }
+    const start = performance.now()
+    let raf: number
+    const tick = () => {
+      setElapsedSeconds((performance.now() - start) / 1000)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [recording])
+
+  // Take history: every completed recording of the current passage/script is
+  // kept (not just the latest) so takes can be selected and compared side by
+  // side. Cleared whenever the passage or custom script changes.
+  const [takes, setTakes] = useState<Take[]>([])
+  const [selectedTakeIds, setSelectedTakeIds] = useState<string[]>([])
+  const pendingTakeIdRef = useRef<string | null>(null)
+  const takesRef = useRef<Take[]>(takes)
+  useEffect(() => {
+    takesRef.current = takes
+  }, [takes])
+
+  useEffect(() => {
+    const metrics = drill.metrics
+    if (!metrics || !activePassage) return
+    const id = createTakeId()
+    pendingTakeIdRef.current = id
+    setTakes((prev) => [
+      ...prev,
+      {
+        id,
+        label: `Take ${prev.length + 1}`,
+        passageTitle: activePassage.title,
+        createdAt: Date.now(),
+        metrics,
+        analysis,
+        audioUrl: null,
+      },
+    ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drill.metrics])
+
+  useEffect(() => {
+    const audioUrl = drill.audioUrl
+    const id = pendingTakeIdRef.current
+    if (!audioUrl || !id) return
+    setTakes((prev) => prev.map((t) => (t.id === id ? { ...t, audioUrl } : t)))
+  }, [drill.audioUrl])
+
+  useEffect(() => {
+    return () => revokeTakeAudio(takesRef.current)
+  }, [])
+
+  function clearTakeHistory() {
+    revokeTakeAudio(takes)
+    setTakes([])
+    setSelectedTakeIds([])
+    pendingTakeIdRef.current = null
+  }
+
+  function toggleTakeSelection(id: string) {
+    setSelectedTakeIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id)
+      if (prev.length >= 2) return [prev[1], id]
+      return [...prev, id]
+    })
+  }
+
+  const takeA = takes.find((t) => t.id === selectedTakeIds[0])
+  const takeB = takes.find((t) => t.id === selectedTakeIds[1])
 
   async function handleRequestFeedback() {
     if (!drill.metrics || !activePassage) return
@@ -69,17 +156,20 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   }
 
   function handlePassageChange(nextId: string) {
+    clearTakeHistory()
     setPassageId(nextId)
     handleNewAttempt()
   }
 
   function handleAnnotate() {
     if (!customDraft.trim()) return
+    clearTakeHistory()
     setCustomParts(autoAnnotate(customDraft))
     handleNewAttempt()
   }
 
   function handleEditScript() {
+    clearTakeHistory()
     setCustomParts(null)
     handleNewAttempt()
   }
@@ -131,16 +221,55 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           </div>
         ) : activePassage ? (
           <div>
-            <PassageDisplay parts={activePassage.parts} />
-            {isCustom && (
-              <button
-                type="button"
-                onClick={handleEditScript}
-                disabled={recording}
-                className="mt-2 text-xs font-medium text-violet-300 underline decoration-violet-400/40 underline-offset-2 transition hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Edit script
-              </button>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTeleprompterMode((v) => !v)}
+                  className={`min-h-9 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    teleprompterMode
+                      ? 'border-violet-400/60 bg-violet-500/20 text-violet-200'
+                      : 'border-white/15 bg-white/5 text-white/60 hover:text-white'
+                  }`}
+                >
+                  {teleprompterMode ? 'Teleprompter: On' : 'Teleprompter View'}
+                </button>
+                {teleprompterMode && (
+                  <label className="flex items-center gap-1.5 text-xs text-white/50">
+                    Target WPM
+                    <input
+                      type="number"
+                      min={80}
+                      max={220}
+                      step={5}
+                      value={targetWpm}
+                      onChange={(e) => setTargetWpm(Number(e.target.value) || DEFAULT_TARGET_WPM)}
+                      className="min-h-9 w-16 rounded-lg border border-white/15 bg-black/30 px-2 py-1 text-sm text-white focus:border-violet-400/50 focus:outline-none"
+                    />
+                  </label>
+                )}
+              </div>
+              {isCustom && (
+                <button
+                  type="button"
+                  onClick={handleEditScript}
+                  disabled={recording}
+                  className="text-xs font-medium text-violet-300 underline decoration-violet-400/40 underline-offset-2 transition hover:text-violet-200 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Edit script
+                </button>
+              )}
+            </div>
+
+            {teleprompterMode ? (
+              <Teleprompter
+                parts={activePassage.parts}
+                targetWpm={targetWpm}
+                elapsedSeconds={elapsedSeconds}
+                active={recording}
+              />
+            ) : (
+              <PassageDisplay parts={activePassage.parts} />
             )}
           </div>
         ) : null}
@@ -151,6 +280,12 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
 
         <div className="mt-5">
           <AudioWave levels={drill.levels} active={recording} />
+          {recording && drill.monotoneWarning && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-200">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              Monotone detected — vary pitch/energy
+            </div>
+          )}
         </div>
 
         <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -262,10 +397,15 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
         </div>
       )}
 
+      {takes.length > 0 && (
+        <TakeHistoryList takes={takes} selectedIds={selectedTakeIds} onToggle={toggleTakeSelection} />
+      )}
+
+      {takeA && takeB && <TakeComparisonCard takeA={takeA} takeB={takeB} />}
+
       {feedback && (
         <FeedbackCard feedback={feedback} persona={persona} onTryAgain={handleNewAttempt} />
       )}
     </div>
   )
 }
-
