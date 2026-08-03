@@ -10,15 +10,26 @@ import {
   type DynamicsSample,
   type TelemetrySample,
 } from '../lib/pitchAnalysis'
-import { evaluatePatternInterrupt, type PatternInterruptResult } from '../lib/patternInterrupt'
+import {
+  evaluatePatternInterrupt,
+  type PatternInterruptCondition,
+  type PatternInterruptResult,
+} from '../lib/patternInterrupt'
 
 const PAUSE_THRESHOLD_SECONDS = 1.2
 const BAR_COUNT = 24
 const PITCH_FFT_SIZE = 2048
-const FILLER_WINDOW_SECONDS = 15
+const FILLER_WINDOW_SECONDS = 12
 const RUSHING_WINDOW_SECONDS = 8
 const PATTERN_CHECK_INTERVAL_MS = 1000
-const PATTERN_NUDGE_COOLDOWN_MS = 8000
+// Baseline Warm-Up Period: nothing can trigger before the engine has enough
+// signal to calculate a reliable baseline WPM and pitch variance.
+const PATTERN_WARMUP_SECONDS = 10
+// Dual-Direction Cooldown: an 8s global gap between any two nudges, plus a
+// longer 12s gap before the *same* condition can repeat (so a naturally slow
+// talker doesn't get "Dragging" fired at them back-to-back).
+const PATTERN_GLOBAL_COOLDOWN_MS = 8000
+const PATTERN_CONDITION_COOLDOWN_MS = 12000
 const PATTERN_NUDGE_VISIBLE_MS = 4000
 
 type RecognitionResultLike = {
@@ -50,6 +61,14 @@ function countWords(text: string): number {
     .split(/\s+/)
     .filter(Boolean).length
 }
+
+function standardDeviation(values: number[]): number {
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length
+  const variance = values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / values.length
+  return Math.sqrt(variance)
+}
+
+const TERMINAL_PUNCTUATION_PATTERN = /[.!?]\s*$/
 
 function createRecognition(Ctor: NonNullable<Window['SpeechRecognition']> | undefined) {
   if (!Ctor) return null
@@ -89,6 +108,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const transcriptChunksRef = useRef<Array<{ t: number; text: string }>>([])
   const lastPatternCheckAtRef = useRef(0)
   const lastNudgeAtRef = useRef(0)
+  const lastNudgeAtByConditionRef = useRef<Partial<Record<PatternInterruptCondition, number>>>({})
   const nudgeSeedRef = useRef(0)
   const patternInterruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -117,22 +137,30 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
 
     const history = dynamicsHistoryRef.current
     const recentPitches = history.map((s) => s.pitchHz).filter((p): p is number => p !== null)
-    const recentPitchVarianceHz =
-      recentPitches.length >= 4 ? Math.max(...recentPitches) - Math.min(...recentPitches) : null
+    const recentPitchStdDevHz = recentPitches.length >= 4 ? standardDeviation(recentPitches) : null
 
     const baselinePitches = telemetryRef.current
       .filter((s) => nowSec - s.t > 5)
       .map((s) => s.pitchHz)
       .filter((p): p is number => p !== null)
-    const baselinePitchVarianceHz =
-      baselinePitches.length >= 6 ? Math.max(...baselinePitches) - Math.min(...baselinePitches) : null
+    const baselinePitchStdDevHz = baselinePitches.length >= 6 ? standardDeviation(baselinePitches) : null
+
+    const lastResultAtMs = resultTimestampsRef.current[resultTimestampsRef.current.length - 1]
+    const liveSilenceSeconds = lastResultAtMs !== undefined ? (now - lastResultAtMs) / 1000 : nowSec
+
+    const lastChunk = chunks[chunks.length - 1]
+    const lastChunkEndsWithTerminalPunctuation = lastChunk
+      ? TERMINAL_PUNCTUATION_PATTERN.test(lastChunk.text.trim())
+      : false
 
     return {
       recentTranscriptWindow,
       recentWpm,
       baselineWpm,
-      recentPitchVarianceHz,
-      baselinePitchVarianceHz,
+      liveSilenceSeconds,
+      lastChunkEndsWithTerminalPunctuation,
+      recentPitchStdDevHz,
+      baselinePitchStdDevHz,
       nudgeSeed: nudgeSeedRef.current,
     }
   }, [])
@@ -180,15 +208,23 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       telemetryRef.current.push({ t: (now - startTimeRef.current) / 1000, pitchHz, volume })
     }
 
-    if (now - lastPatternCheckAtRef.current >= PATTERN_CHECK_INTERVAL_MS) {
+    const nowSecForWarmup = (now - startTimeRef.current) / 1000
+    if (nowSecForWarmup >= PATTERN_WARMUP_SECONDS && now - lastPatternCheckAtRef.current >= PATTERN_CHECK_INTERVAL_MS) {
       lastPatternCheckAtRef.current = now
       const result = evaluatePatternInterrupt(buildPatternInterruptInput(now))
-      if (result.triggerDetected && now - lastNudgeAtRef.current >= PATTERN_NUDGE_COOLDOWN_MS) {
-        lastNudgeAtRef.current = now
-        nudgeSeedRef.current += 1
-        if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
-        setPatternInterrupt(result)
-        patternInterruptTimeoutRef.current = setTimeout(() => setPatternInterrupt(null), PATTERN_NUDGE_VISIBLE_MS)
+      if (result.triggerDetected && result.conditionType) {
+        const conditionType = result.conditionType
+        const globalCooldownOk = now - lastNudgeAtRef.current >= PATTERN_GLOBAL_COOLDOWN_MS
+        const conditionCooldownOk =
+          now - (lastNudgeAtByConditionRef.current[conditionType] ?? -Infinity) >= PATTERN_CONDITION_COOLDOWN_MS
+        if (globalCooldownOk && conditionCooldownOk) {
+          lastNudgeAtRef.current = now
+          lastNudgeAtByConditionRef.current[conditionType] = now
+          nudgeSeedRef.current += 1
+          if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
+          setPatternInterrupt(result)
+          patternInterruptTimeoutRef.current = setTimeout(() => setPatternInterrupt(null), PATTERN_NUDGE_VISIBLE_MS)
+        }
       }
     }
 
@@ -293,6 +329,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     transcriptChunksRef.current = []
     lastPatternCheckAtRef.current = 0
     lastNudgeAtRef.current = 0
+    lastNudgeAtByConditionRef.current = {}
     nudgeSeedRef.current = 0
     if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
     setPatternInterrupt(null)
