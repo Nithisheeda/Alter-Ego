@@ -443,6 +443,11 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
               {midDrillCue}
             </div>
           )}
+          {recording && drill.patternInterrupt?.interruptNudgeText && (
+            <div className="animate-fade-in-up mt-3 rounded-lg border border-rose-400/50 bg-rose-500/15 px-4 py-3 text-center text-base font-bold tracking-tight text-rose-100">
+              {drill.patternInterrupt.interruptNudgeText}
+            </div>
+          )}
         </div>
 
         <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">

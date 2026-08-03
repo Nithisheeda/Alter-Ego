@@ -10,10 +10,16 @@ import {
   type DynamicsSample,
   type TelemetrySample,
 } from '../lib/pitchAnalysis'
+import { evaluatePatternInterrupt, type PatternInterruptResult } from '../lib/patternInterrupt'
 
 const PAUSE_THRESHOLD_SECONDS = 1.2
 const BAR_COUNT = 24
 const PITCH_FFT_SIZE = 2048
+const FILLER_WINDOW_SECONDS = 15
+const RUSHING_WINDOW_SECONDS = 8
+const PATTERN_CHECK_INTERVAL_MS = 1000
+const PATTERN_NUDGE_COOLDOWN_MS = 8000
+const PATTERN_NUDGE_VISIBLE_MS = 4000
 
 type RecognitionResultLike = {
   isFinal: boolean
@@ -31,6 +37,7 @@ interface UseVoiceDrillResult {
   audioUrl: string | null
   telemetry: TelemetrySample[]
   monotoneWarning: boolean
+  patternInterrupt: PatternInterruptResult | null
   hasSpeechRecognition: boolean
   start: () => void
   stop: () => void
@@ -62,6 +69,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [telemetry, setTelemetry] = useState<TelemetrySample[]>([])
   const [monotoneWarning, setMonotoneWarning] = useState(false)
+  const [patternInterrupt, setPatternInterrupt] = useState<PatternInterruptResult | null>(null)
 
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -78,9 +86,56 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const startTimeRef = useRef<number>(0)
   const transcriptRef = useRef<string>('')
   const resultTimestampsRef = useRef<number[]>([])
+  const transcriptChunksRef = useRef<Array<{ t: number; text: string }>>([])
+  const lastPatternCheckAtRef = useRef(0)
+  const lastNudgeAtRef = useRef(0)
+  const nudgeSeedRef = useRef(0)
+  const patternInterruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const SpeechRecognitionCtor =
     typeof window !== 'undefined' ? window.SpeechRecognition ?? window.webkitSpeechRecognition : undefined
+
+  // Builds the windowed inputs evaluatePatternInterrupt needs from raw
+  // telemetry/transcript refs — trailing windows for "recent" behavior,
+  // whole-take-so-far for the "baseline" each is measured against.
+  const buildPatternInterruptInput = useCallback((now: number) => {
+    const nowSec = (now - startTimeRef.current) / 1000
+    const chunks = transcriptChunksRef.current
+
+    const recentTranscriptWindow = chunks
+      .filter((c) => nowSec - c.t <= FILLER_WINDOW_SECONDS)
+      .map((c) => c.text)
+      .join(' ')
+
+    const rushingWindowWords = chunks
+      .filter((c) => nowSec - c.t <= RUSHING_WINDOW_SECONDS)
+      .reduce((sum, c) => sum + countWords(c.text), 0)
+    const recentWpm = nowSec >= RUSHING_WINDOW_SECONDS ? (rushingWindowWords / RUSHING_WINDOW_SECONDS) * 60 : null
+
+    const totalWords = chunks.reduce((sum, c) => sum + countWords(c.text), 0)
+    const baselineWpm = nowSec >= 5 ? (totalWords / nowSec) * 60 : null
+
+    const history = dynamicsHistoryRef.current
+    const recentPitches = history.map((s) => s.pitchHz).filter((p): p is number => p !== null)
+    const recentPitchVarianceHz =
+      recentPitches.length >= 4 ? Math.max(...recentPitches) - Math.min(...recentPitches) : null
+
+    const baselinePitches = telemetryRef.current
+      .filter((s) => nowSec - s.t > 5)
+      .map((s) => s.pitchHz)
+      .filter((p): p is number => p !== null)
+    const baselinePitchVarianceHz =
+      baselinePitches.length >= 6 ? Math.max(...baselinePitches) - Math.min(...baselinePitches) : null
+
+    return {
+      recentTranscriptWindow,
+      recentWpm,
+      baselineWpm,
+      recentPitchVarianceHz,
+      baselinePitchVarianceHz,
+      nudgeSeed: nudgeSeedRef.current,
+    }
+  }, [])
 
   // Runs on every animation frame while recording: redraws the coarse bar
   // visualizer, and — throttled to a few times a second — samples the
@@ -125,8 +180,20 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       telemetryRef.current.push({ t: (now - startTimeRef.current) / 1000, pitchHz, volume })
     }
 
+    if (now - lastPatternCheckAtRef.current >= PATTERN_CHECK_INTERVAL_MS) {
+      lastPatternCheckAtRef.current = now
+      const result = evaluatePatternInterrupt(buildPatternInterruptInput(now))
+      if (result.triggerDetected && now - lastNudgeAtRef.current >= PATTERN_NUDGE_COOLDOWN_MS) {
+        lastNudgeAtRef.current = now
+        nudgeSeedRef.current += 1
+        if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
+        setPatternInterrupt(result)
+        patternInterruptTimeoutRef.current = setTimeout(() => setPatternInterrupt(null), PATTERN_NUDGE_VISIBLE_MS)
+      }
+    }
+
     rafRef.current = requestAnimationFrame(tickLevels)
-  }, [])
+  }, [buildPatternInterruptInput])
 
   // Stops the visualizer (rAF + analyser) without touching the live mic
   // stream, so an in-flight MediaRecorder can still flush its last chunk.
@@ -223,6 +290,12 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     setStatus('requesting')
     transcriptRef.current = ''
     resultTimestampsRef.current = []
+    transcriptChunksRef.current = []
+    lastPatternCheckAtRef.current = 0
+    lastNudgeAtRef.current = 0
+    nudgeSeedRef.current = 0
+    if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
+    setPatternInterrupt(null)
 
     const recognition = createRecognition(SpeechRecognitionCtor)
     recognitionRef.current = recognition
@@ -238,7 +311,13 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
             finalChunk += result[0].transcript + ' '
           }
         }
-        if (finalChunk) transcriptRef.current += finalChunk
+        if (finalChunk) {
+          transcriptRef.current += finalChunk
+          transcriptChunksRef.current.push({
+            t: (performance.now() - startTimeRef.current) / 1000,
+            text: finalChunk,
+          })
+        }
       }
       recognition.onerror = (event) => {
         switch (event.error) {
@@ -340,6 +419,8 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     setLevels(new Array(BAR_COUNT).fill(0.05))
     setMonotoneWarning(false)
     setTelemetry([])
+    if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
+    setPatternInterrupt(null)
     // Does not revoke — see the note in start().
     setAudioUrl(null)
   }, [cleanupAudio])
@@ -351,6 +432,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop()
       }
+      if (patternInterruptTimeoutRef.current) clearTimeout(patternInterruptTimeoutRef.current)
     }
   }, [cleanupAudio])
 
@@ -363,6 +445,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     audioUrl,
     telemetry,
     monotoneWarning,
+    patternInterrupt,
     hasSpeechRecognition: Boolean(SpeechRecognitionCtor),
     start,
     stop,
