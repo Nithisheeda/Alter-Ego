@@ -17,6 +17,8 @@ import { TakeHistoryList } from './TakeHistoryList'
 import { TakeComparisonCard } from './TakeComparisonCard'
 import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
+import { generateExecutiveAnalysis, type ExecutiveAnalysis } from '../lib/executiveAnalysis'
+import { ExecutiveAnalysisCard } from './ExecutiveAnalysisCard'
 import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
 
 const DEFAULT_TARGET_WPM = 130
@@ -45,6 +47,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const drill = useVoiceDrill(activeWordCount)
   const [feedback, setFeedback] = useState<FutureSelfFeedback | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [executiveAnalysis, setExecutiveAnalysis] = useState<ExecutiveAnalysis | null>(null)
+  const [executiveLoading, setExecutiveLoading] = useState(false)
   const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
@@ -166,10 +170,29 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     }
   }
 
+  async function handleRequestExecutiveAnalysis() {
+    if (!drill.metrics) return
+    setExecutiveLoading(true)
+    setExecutiveAnalysis(null)
+    try {
+      const result = await generateExecutiveAnalysis({
+        transcript: drill.metrics.transcript,
+        metrics: drill.metrics,
+        telemetry: drill.telemetry,
+        analysis,
+        persona: personaReady ? persona : null,
+      })
+      setExecutiveAnalysis(result)
+    } finally {
+      setExecutiveLoading(false)
+    }
+  }
+
   function handleNewAttempt() {
     // Keeps the selected passage — only the recorder/metrics/feedback reset.
     drill.reset()
     setFeedback(null)
+    setExecutiveAnalysis(null)
     drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
@@ -387,19 +410,32 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
           </div>
         )}
 
-        {drill.metrics && !feedback && (
-          <div className="mt-5">
-            <button
-              type="button"
-              onClick={handleRequestFeedback}
-              disabled={feedbackLoading || !personaReady}
-              className="min-h-11 w-full rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-            >
-              {feedbackLoading ? 'Consulting your Future-Self…' : 'Get Future-Self Feedback'}
-            </button>
+        {drill.metrics && (
+          <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+            {!feedback && (
+              <button
+                type="button"
+                onClick={handleRequestFeedback}
+                disabled={feedbackLoading || !personaReady}
+                className="min-h-11 w-full rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {feedbackLoading ? 'Consulting your Future-Self…' : 'Get Future-Self Feedback'}
+              </button>
+            )}
+            {!executiveAnalysis && (
+              <button
+                type="button"
+                onClick={handleRequestExecutiveAnalysis}
+                disabled={executiveLoading}
+                className="min-h-11 w-full rounded-lg border border-sky-400/40 bg-sky-500/10 px-5 py-3 text-sm font-medium text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {executiveLoading ? 'Running executive analysis…' : 'Get Executive Analysis'}
+              </button>
+            )}
             {!personaReady && (
-              <p className="mt-2 text-xs text-white/40">
-                Complete your Future-Self persona above to unlock feedback.
+              <p className="text-xs text-white/40">
+                Complete your Future-Self persona above to unlock Future-Self feedback and Mode B
+                alter-ego coaching.
               </p>
             )}
           </div>
@@ -407,6 +443,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
       </div>
 
       {analysis && <VocalAnalysisCard analysis={analysis} />}
+
+      {executiveAnalysis && <ExecutiveAnalysisCard analysis={executiveAnalysis} />}
 
       {drill.audioUrl && drill.metrics && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">

@@ -1,5 +1,7 @@
 // Vercel Edge Function — secure proxy for Anthropic Messages API calls.
 // Keeps the real API key server-side; the client never sees it.
+import { EXECUTIVE_ANALYZER_SYSTEM_PROMPT } from '../src/lib/executiveAnalyzerPrompt'
+
 export const config = { runtime: 'edge' }
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
@@ -7,16 +9,16 @@ const ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_MODEL = 'claude-sonnet-4-5'
 const MAX_TOKENS_CAP = 1024
 
-type PromptMode = 'speech' | 'persona' | 'dual'
+type PromptMode = 'speech' | 'persona' | 'dual' | 'executive-analyzer'
 
 function isPromptMode(value: unknown): value is PromptMode {
-  return value === 'speech' || value === 'persona' || value === 'dual'
+  return value === 'speech' || value === 'persona' || value === 'dual' || value === 'executive-analyzer'
 }
 
 // Layered on top of whatever system prompt the client sends, only when it
 // explicitly asks for a mode. Callers using their own saved API key bypass
 // this proxy entirely (see ai.ts), so this only governs proxy-routed calls.
-const PROMPT_MODE_DIRECTIVES: Record<PromptMode, string> = {
+const PROMPT_MODE_DIRECTIVES: Record<Exclude<PromptMode, 'executive-analyzer'>, string> = {
   speech:
     'Analysis mode: SPEECH. Focus on concrete vocal delivery mechanics — pacing, pause discipline, diction, and pitch/volume — drawn strictly from the metrics and transcript provided. Treat identity/persona framing as color, not the main analysis.',
   persona:
@@ -24,8 +26,19 @@ const PROMPT_MODE_DIRECTIVES: Record<PromptMode, string> = {
   dual: "Analysis mode: DUAL. Give equal weight to (1) SPEECH ANALYSIS — concrete vocal delivery mechanics (pace, pauses, diction, pitch/volume) drawn from the metrics provided, and (2) PERSONA ANALYSIS — whether the delivery and content reflect the user's stated Future-Self identity, standards, and mantra. Address both dimensions explicitly in the response; do not collapse into only one.",
 }
 
+/**
+ * Dual-mode Speech & Persona analysis: 'executive-analyzer' is the full
+ * structured analyzer (Mode A standalone speech / Mode B alter-ego coaching,
+ * selected server-side by presence of a persona_profile in the payload). It
+ * REPLACES whatever system prompt the client sent — this is the one prompt
+ * we don't want a client (even a modified one) able to override, since its
+ * JSON contract is load-bearing for the UI that parses the response.
+ * The lighter 'speech' | 'persona' | 'dual' modes still just append a short
+ * directive to the client's own prompt, for the existing Future-Self flows.
+ */
 function applyPromptMode(system: string | undefined, mode: unknown): string | undefined {
   if (!isPromptMode(mode)) return system
+  if (mode === 'executive-analyzer') return EXECUTIVE_ANALYZER_SYSTEM_PROMPT
   const directive = PROMPT_MODE_DIRECTIVES[mode]
   return system ? `${system}\n\n${directive}` : directive
 }

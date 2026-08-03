@@ -12,7 +12,7 @@ export function hasCustomApiKey(): boolean {
 }
 
 /** Tells the /api/claude proxy which analysis lens to layer onto the system prompt — see api/claude.ts. */
-export type PromptMode = 'speech' | 'persona' | 'dual'
+export type PromptMode = 'speech' | 'persona' | 'dual' | 'executive-analyzer'
 
 /**
  * Key resolution, in order:
@@ -20,12 +20,13 @@ export type PromptMode = 'speech' | 'persona' | 'dual'
  *    from the browser. The `mode` param is not sent here: Anthropic's API
  *    rejects unrecognized body fields, and dual-mode augmentation is a
  *    proxy-only feature (a bring-your-own-key user's prompt goes through
- *    verbatim).
+ *    verbatim — callers that need a specific system prompt regardless of
+ *    path, like the executive analyzer, pass it in `system` directly).
  * 2. The `/api/claude` serverless proxy, which holds the real key
  *    server-side and applies `mode` to the system prompt.
  * 3. Callers catch failures from this and fall back to mock heuristics.
  */
-async function callClaude(
+export async function callClaude(
   system: string,
   userContent: string,
   maxTokens: number,
