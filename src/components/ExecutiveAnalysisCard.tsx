@@ -12,8 +12,13 @@ export function ExecutiveAnalysisCard({ analysis }: ExecutiveAnalysisCardProps) 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-white">Executive Voice &amp; Mindset Analysis</p>
-          <p className="text-[11px] text-white/40">
-            {execution_mode === 'MODE_B_ALTER_EGO' ? 'Mode B — Alter-Ego Coaching' : 'Mode A — Standalone Speech Analysis'}
+          <p className="text-[11px] font-medium text-white/50">
+            {execution_mode === 'MODE_B_ALTER_EGO' ? 'Mode B — Persona & Mindset Analysis' : 'Mode A — Pure Speech Analyzer'}
+          </p>
+          <p className="mt-0.5 text-[11px] text-white/30">
+            {execution_mode === 'MODE_B_ALTER_EGO'
+              ? 'Vocal mechanics filtered through your active Future-Self persona and mindset coaching.'
+              : 'Raw acoustic metrics and speech diagnostics (pitch, tempo, cadence) without persona-based coaching filters.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
