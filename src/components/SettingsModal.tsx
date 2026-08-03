@@ -1,18 +1,29 @@
 import { useEffect, useState } from 'react'
-import { clearCustomApiKey, loadCustomApiKey, saveCustomApiKey } from '../lib/settings'
+import {
+  clearCustomApiKey,
+  loadCustomApiKey,
+  loadUserFirstName,
+  saveCustomApiKey,
+  saveUserFirstName,
+} from '../lib/settings'
 
 interface SettingsModalProps {
   open: boolean
   onClose: () => void
   onKeyChange: () => void
+  onNameChange: () => void
 }
 
-export function SettingsModal({ open, onClose, onKeyChange }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, onKeyChange, onNameChange }: SettingsModalProps) {
   const [keyDraft, setKeyDraft] = useState('')
+  const [nameDraft, setNameDraft] = useState('')
   const [savedPulse, setSavedPulse] = useState(false)
 
   useEffect(() => {
-    if (open) setKeyDraft(loadCustomApiKey() ?? '')
+    if (open) {
+      setKeyDraft(loadCustomApiKey() ?? '')
+      setNameDraft(loadUserFirstName())
+    }
   }, [open])
 
   useEffect(() => {
@@ -26,7 +37,9 @@ export function SettingsModal({ open, onClose, onKeyChange }: SettingsModalProps
 
   function handleSave() {
     saveCustomApiKey(keyDraft)
+    saveUserFirstName(nameDraft)
     onKeyChange()
+    onNameChange()
     setSavedPulse(true)
     setTimeout(() => setSavedPulse(false), 1600)
   }
@@ -67,6 +80,21 @@ export function SettingsModal({ open, onClose, onKeyChange }: SettingsModalProps
         </div>
 
         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+          Your First Name (optional)
+        </label>
+        <input
+          type="text"
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          placeholder="e.g. Alex"
+          className="min-h-11 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-3 text-base text-white placeholder:text-white/25 focus:border-violet-400/50 focus:outline-none focus:ring-1 focus:ring-violet-400/50"
+        />
+        <p className="mt-2 text-xs leading-relaxed text-white/40">
+          Powers Observer Mode's third-person self-distancing coaching — no full Future-Self
+          persona required.
+        </p>
+
+        <label className="mb-1.5 mt-5 block text-xs font-medium uppercase tracking-wide text-white/40">
           Your Anthropic API Key (optional)
         </label>
         <input

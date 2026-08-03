@@ -21,16 +21,20 @@ import { generateExecutiveAnalysis, type ExecutiveAnalysis } from '../lib/execut
 import { ExecutiveAnalysisCard } from './ExecutiveAnalysisCard'
 import { generatePersonaDiagnostic, type PersonaDiagnostic } from '../lib/personaDiagnostic'
 import { PersonaDiagnosticCard } from './PersonaDiagnosticCard'
+import { generateObserverAnalysis, generateMidDrillCue, type ObserverAnalysis } from '../lib/observerMode'
+import { ObserverAnalysisCard } from './ObserverAnalysisCard'
 import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
 
 const DEFAULT_TARGET_WPM = 130
+const MID_DRILL_CUE_INTERVAL_SECONDS = 15
 
 interface DrillModeProps {
   persona: FutureSelfPersona
   personaReady: boolean
+  userFirstName: string
 }
 
-export function DrillMode({ persona, personaReady }: DrillModeProps) {
+export function DrillMode({ persona, personaReady, userFirstName }: DrillModeProps) {
   const [passageId, setPassageId] = useState<string>(PASSAGES[0].id)
   const [customDraft, setCustomDraft] = useState('')
   const [customParts, setCustomParts] = useState<PassagePart[] | null>(null)
@@ -54,6 +58,10 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const [scenarioTag, setScenarioTag] = useState('')
   const [personaDiagnostic, setPersonaDiagnostic] = useState<PersonaDiagnostic | null>(null)
   const [personaDiagnosticLoading, setPersonaDiagnosticLoading] = useState(false)
+  const [drillGoal, setDrillGoal] = useState('')
+  const [observerAnalysis, setObserverAnalysis] = useState<ObserverAnalysis | null>(null)
+  const [observerLoading, setObserverLoading] = useState(false)
+  const [midDrillCue, setMidDrillCue] = useState<string | null>(null)
   const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
@@ -85,6 +93,23 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [recording])
+
+  // Observer Mode's mid-drill re-cue: a punchy third-person question, rotated
+  // on a fixed cadence while recording. Generated locally (no network round
+  // trip) since it has to render in real time during the take.
+  useEffect(() => {
+    if (!recording || !userFirstName.trim()) {
+      setMidDrillCue(null)
+      return
+    }
+    let cueIndex = 0
+    setMidDrillCue(generateMidDrillCue(userFirstName, cueIndex))
+    const interval = setInterval(() => {
+      cueIndex += 1
+      setMidDrillCue(generateMidDrillCue(userFirstName, cueIndex))
+    }, MID_DRILL_CUE_INTERVAL_SECONDS * 1000)
+    return () => clearInterval(interval)
+  }, [recording, userFirstName])
 
   // Take history: every completed recording of the current passage/script is
   // kept (not just the latest) so takes can be selected and compared side by
@@ -211,12 +236,31 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     }
   }
 
+  async function handleRequestObserverAnalysis() {
+    if (!drill.metrics || !userFirstName.trim()) return
+    setObserverLoading(true)
+    setObserverAnalysis(null)
+    try {
+      const result = await generateObserverAnalysis({
+        userFirstName,
+        drillGoal: drillGoal || activePassage?.title || '',
+        transcript: drill.metrics.transcript,
+        metrics: drill.metrics,
+        analysis,
+      })
+      setObserverAnalysis(result)
+    } finally {
+      setObserverLoading(false)
+    }
+  }
+
   function handleNewAttempt() {
     // Keeps the selected passage — only the recorder/metrics/feedback reset.
     drill.reset()
     setFeedback(null)
     setExecutiveAnalysis(null)
     setPersonaDiagnostic(null)
+    setObserverAnalysis(null)
     drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
@@ -351,6 +395,11 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
               Monotone detected — vary pitch/energy
             </div>
           )}
+          {recording && midDrillCue && (
+            <div className="animate-fade-in-up mt-3 rounded-lg border border-teal-400/30 bg-teal-500/10 px-3 py-2 text-xs font-medium text-teal-200">
+              {midDrillCue}
+            </div>
+          )}
         </div>
 
         <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -466,10 +515,26 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
                 {personaDiagnosticLoading ? 'Running self-distancing diagnostic…' : 'Run Persona Diagnostic'}
               </button>
             )}
+            {!observerAnalysis && (
+              <button
+                type="button"
+                onClick={handleRequestObserverAnalysis}
+                disabled={observerLoading || !userFirstName.trim()}
+                className="min-h-11 w-full rounded-lg border border-teal-400/40 bg-teal-500/10 px-5 py-3 text-sm font-medium text-teal-200 transition hover:bg-teal-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {observerLoading ? 'Running observer analysis…' : 'Run Observer Analysis'}
+              </button>
+            )}
             {!personaReady && (
               <p className="text-xs text-white/40">
                 Complete your Future-Self persona above to unlock Future-Self feedback, Mode B
                 alter-ego coaching, and the persona diagnostic.
+              </p>
+            )}
+            {!userFirstName.trim() && (
+              <p className="text-xs text-white/40">
+                Add your first name in Settings to unlock Observer Mode's third-person coaching —
+                no full persona required.
               </p>
             )}
           </div>
@@ -489,6 +554,21 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
             />
           </div>
         )}
+
+        {drill.metrics && userFirstName.trim() && (
+          <div className="mt-3">
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+              Current Drill Goal (optional, for Observer Mode)
+            </label>
+            <input
+              type="text"
+              value={drillGoal}
+              onChange={(e) => setDrillGoal(e.target.value)}
+              placeholder={activePassage?.title || 'e.g. Delivering with steady, unhurried control'}
+              className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-teal-400/50 focus:outline-none focus:ring-1 focus:ring-teal-400/50"
+            />
+          </div>
+        )}
       </div>
 
       {analysis && <VocalAnalysisCard analysis={analysis} />}
@@ -498,6 +578,8 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
       {personaDiagnostic && (
         <PersonaDiagnosticCard diagnostic={personaDiagnostic} personaName={persona.name.trim() || 'your Future-Self'} />
       )}
+
+      {observerAnalysis && <ObserverAnalysisCard analysis={observerAnalysis} userFirstName={userFirstName} />}
 
       {drill.audioUrl && drill.metrics && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">

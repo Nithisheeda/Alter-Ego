@@ -8,6 +8,7 @@ import { WarmUpModal } from './components/WarmUpModal'
 import { SettingsModal } from './components/SettingsModal'
 import { loadPersona, savePersona, isPersonaComplete } from './lib/storage'
 import { hasCustomApiKey } from './lib/ai'
+import { loadUserFirstName } from './lib/settings'
 import type { FutureSelfPersona } from './types'
 
 type Tab = 'drill' | 'situational'
@@ -19,6 +20,7 @@ function App() {
   const [warmUpOpen, setWarmUpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [customKeySet, setCustomKeySet] = useState(() => hasCustomApiKey())
+  const [userFirstName, setUserFirstName] = useState(() => loadUserFirstName())
 
   const personaReady = isPersonaComplete(persona)
 
@@ -86,7 +88,7 @@ function App() {
           </div>
 
           {tab === 'drill' ? (
-            <DrillMode persona={persona} personaReady={personaReady} />
+            <DrillMode persona={persona} personaReady={personaReady} userFirstName={userFirstName} />
           ) : (
             <SituationalPrep persona={persona} personaReady={personaReady} />
           )}
@@ -103,6 +105,7 @@ function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onKeyChange={() => setCustomKeySet(hasCustomApiKey())}
+        onNameChange={() => setUserFirstName(loadUserFirstName())}
       />
     </div>
   )
