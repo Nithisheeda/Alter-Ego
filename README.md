@@ -14,8 +14,8 @@ unshakeable version of you — reviewing speech drills and situational prep.
 - **Situational Mindset Prep** — describe an upcoming high-stakes moment by
   text or voice for a Future-Self reframe.
 - **Future-Self Feedback** — Reality Check / Tactical Adjustment / Mindset
-  Reframe, generated live via the Anthropic API or a structured mock
-  fallback when no key is configured.
+  Reframe, generated live via Claude or a structured mock fallback when no
+  key is reachable.
 
 ## Setup
 
@@ -24,9 +24,26 @@ npm install
 npm run dev
 ```
 
-Copy `.env.example` to `.env` and set `VITE_ANTHROPIC_API_KEY` to enable live
-Future-Self AI feedback. Without a key, the app uses structured mock
-diagnostics — the status badge in the header shows which mode is active.
+## AI key resolution
+
+The app never calls Anthropic with a key bundled into client code. Instead,
+each request resolves in this order:
+
+1. **A personal key saved in Settings** (`localStorage`, entered in the app's
+   Settings modal) — called directly from the browser. Useful for local
+   development or a user who wants to bring their own key.
+2. **The `/api/claude` Vercel Edge Function** (`api/claude.ts`) — a same-origin
+   proxy that reads `ANTHROPIC_API_KEY` from the server environment, so the
+   real key never reaches the client. Restricted to `localhost`, `*.vercel.app`,
+   and the deploy's own origin.
+3. **Structured mock diagnostics** — used if neither of the above succeeds
+   (offline, no key configured, proxy error).
+
+Set `ANTHROPIC_API_KEY` (server-side only — do not prefix with `VITE_`) in
+your Vercel project's Environment Variables to enable step 2 for every
+visitor. See `.env.example`. The header's status badge reflects whether a
+personal key is active; each feedback/pushback card also shows "Live AI" or
+"Mock" for what actually happened on that call.
 
 ## Mobile & PWA
 

@@ -5,7 +5,9 @@ import { SituationalPrep } from './components/SituationalPrep'
 import { StatusBadge } from './components/StatusBadge'
 import { MasteryAnalyticsDrawer } from './components/MasteryAnalyticsDrawer'
 import { WarmUpModal } from './components/WarmUpModal'
+import { SettingsModal } from './components/SettingsModal'
 import { loadPersona, savePersona, isPersonaComplete } from './lib/storage'
+import { hasCustomApiKey } from './lib/ai'
 import type { FutureSelfPersona } from './types'
 
 type Tab = 'drill' | 'situational'
@@ -15,6 +17,8 @@ function App() {
   const [tab, setTab] = useState<Tab>('drill')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [warmUpOpen, setWarmUpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [customKeySet, setCustomKeySet] = useState(() => hasCustomApiKey())
 
   const personaReady = isPersonaComplete(persona)
 
@@ -56,7 +60,14 @@ function App() {
             >
               Mastery Analytics
             </button>
-            <StatusBadge />
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="min-h-11 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/70 transition hover:border-violet-400/40 hover:text-white"
+            >
+              Settings
+            </button>
+            <StatusBadge hasCustomKey={customKeySet} />
           </div>
         </header>
 
@@ -88,6 +99,11 @@ function App() {
 
       <MasteryAnalyticsDrawer open={analyticsOpen} onClose={() => setAnalyticsOpen(false)} />
       <WarmUpModal open={warmUpOpen} onClose={() => setWarmUpOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onKeyChange={() => setCustomKeySet(hasCustomApiKey())}
+      />
     </div>
   )
 }

@@ -1,11 +1,61 @@
 import type { FutureSelfFeedback, FutureSelfPersona, SpeechMetrics } from '../types'
 import type { DeliveryAnalysis } from './vocalAnalysis'
+import { loadCustomApiKey } from './settings'
 
-const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY?.trim() || undefined
 const MODEL = 'claude-sonnet-4-5'
-const API_URL = 'https://api.anthropic.com/v1/messages'
+const ANTHROPIC_DIRECT_URL = 'https://api.anthropic.com/v1/messages'
+const PROXY_URL = '/api/claude'
+const ANTHROPIC_VERSION = '2023-06-01'
 
-export const isLiveAiConfigured = Boolean(API_KEY)
+export function hasCustomApiKey(): boolean {
+  return Boolean(loadCustomApiKey())
+}
+
+/**
+ * Key resolution, in order:
+ * 1. A user-supplied key saved in Settings (localStorage) — called directly
+ *    from the browser.
+ * 2. The `/api/claude` serverless proxy, which holds the real key server-side.
+ * 3. Callers catch failures from this and fall back to mock heuristics.
+ */
+async function callClaude(system: string, userContent: string, maxTokens: number): Promise<string> {
+  const customKey = loadCustomApiKey()
+
+  const response = customKey
+    ? await fetch(ANTHROPIC_DIRECT_URL, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': customKey,
+          'anthropic-version': ANTHROPIC_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      })
+    : await fetch(PROXY_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: 'user', content: userContent }],
+        }),
+      })
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null)
+    throw new Error(errorBody?.error || `Claude request failed (${response.status})`)
+  }
+
+  const data = await response.json()
+  return data?.content?.[0]?.text ?? ''
+}
 
 interface DrillContext {
   kind: 'drill'
@@ -85,31 +135,8 @@ export async function generateFeedback(
   persona: FutureSelfPersona,
   context: FeedbackContext,
 ): Promise<FutureSelfFeedback> {
-  if (!API_KEY) {
-    return mockFeedback(persona, context)
-  }
-
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 512,
-        system: personaSystemPrompt(persona),
-        messages: [{ role: 'user', content: userMessage(context) }],
-      }),
-    })
-
-    if (!response.ok) throw new Error(`Anthropic API error ${response.status}`)
-
-    const data = await response.json()
-    const text: string = data?.content?.[0]?.text ?? ''
+    const text = await callClaude(personaSystemPrompt(persona), userMessage(context), 512)
     const parsed = JSON.parse(extractJson(text))
 
     return {
@@ -143,31 +170,8 @@ Give me one sharp follow-up pushback question targeting the weakest part of my r
 }
 
 export async function generatePushback(scenario: string, transcript: string): Promise<PushbackQuestion> {
-  if (!API_KEY) {
-    return mockPushback(scenario, transcript)
-  }
-
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 300,
-        system: PUSHBACK_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: pushbackUserMessage(scenario, transcript) }],
-      }),
-    })
-
-    if (!response.ok) throw new Error(`Anthropic API error ${response.status}`)
-
-    const data = await response.json()
-    const text: string = data?.content?.[0]?.text ?? ''
+    const text = await callClaude(PUSHBACK_SYSTEM_PROMPT, pushbackUserMessage(scenario, transcript), 300)
     const parsed = JSON.parse(extractJson(text))
 
     return {
