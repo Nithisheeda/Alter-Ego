@@ -1,6 +1,7 @@
 import type { Take } from '../lib/takes'
 import type { ScoredDimension } from '../lib/vocalAnalysis'
 import { AudioPlayback } from './AudioPlayback'
+import { VocalTelemetryGraph } from './VocalTelemetryGraph'
 
 interface TakeComparisonCardProps {
   takeA: Take
@@ -64,8 +65,9 @@ export function TakeComparisonCard({ takeA, takeB }: TakeComparisonCardProps) {
 
 function TakeAudioColumn({ take }: { take: Take }) {
   return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-violet-300">{take.label}</p>
+    <div className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-violet-300">{take.label}</p>
+      <VocalTelemetryGraph telemetry={take.telemetry} durationSeconds={take.metrics.durationSeconds} />
       {take.audioUrl ? (
         <AudioPlayback audioUrl={take.audioUrl} label={take.label} />
       ) : (

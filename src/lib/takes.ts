@@ -1,5 +1,6 @@
 import type { SpeechMetrics } from '../types'
 import type { DeliveryAnalysis } from './vocalAnalysis'
+import type { TelemetrySample } from './pitchAnalysis'
 
 export interface Take {
   id: string
@@ -9,6 +10,7 @@ export interface Take {
   metrics: SpeechMetrics
   analysis: DeliveryAnalysis | null
   audioUrl: string | null
+  telemetry: TelemetrySample[]
 }
 
 export function createTakeId(): string {

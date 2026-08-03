@@ -3,9 +3,12 @@ import { CUSTOM_PASSAGE_ID, PASSAGES, passageWordCount } from '../lib/passages'
 import { autoAnnotate } from '../lib/autoAnnotate'
 import { analyzeDelivery } from '../lib/vocalAnalysis'
 import { createTakeId, revokeTakeAudio, type Take } from '../lib/takes'
+import { computePitchVarianceHz } from '../lib/pitchAnalysis'
+import { appendMasteryEntry } from '../lib/masteryLog'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
 import { AudioPlayback } from './AudioPlayback'
+import { VocalTelemetryGraph } from './VocalTelemetryGraph'
 import { PassageDisplay } from './PassageDisplay'
 import { Teleprompter } from './Teleprompter'
 import { MetricBadge } from './MetricBadge'
@@ -97,8 +100,20 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
         metrics,
         analysis,
         audioUrl: null,
+        telemetry: drill.telemetry,
       },
     ])
+
+    appendMasteryEntry({
+      id: createTakeId(),
+      timestamp: Date.now(),
+      passageTitle: activePassage.title,
+      wpm: metrics.wpm,
+      durationSeconds: metrics.durationSeconds,
+      pauseDisciplineScore: analysis?.pauseDiscipline.score ?? null,
+      pitchVarianceHz: computePitchVarianceHz(drill.telemetry),
+      overallScore: analysis?.overallScore ?? null,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drill.metrics])
 
@@ -390,10 +405,13 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
 
       {analysis && <VocalAnalysisCard analysis={analysis} />}
 
-      {drill.audioUrl && (
+      {drill.audioUrl && drill.metrics && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
           <h3 className="mb-3 text-sm font-semibold text-white">Re-listen to your delivery</h3>
-          <AudioPlayback audioUrl={drill.audioUrl} />
+          <div className="space-y-3">
+            <VocalTelemetryGraph telemetry={drill.telemetry} durationSeconds={drill.metrics.durationSeconds} />
+            <AudioPlayback audioUrl={drill.audioUrl} />
+          </div>
         </div>
       )}
 

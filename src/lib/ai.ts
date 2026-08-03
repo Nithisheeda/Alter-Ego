@@ -17,9 +17,19 @@ interface DrillContext {
 interface SituationalContext {
   kind: 'situational'
   scenario: string
+  pushback?: {
+    question: string
+    rebuttalTranscript: string
+  }
 }
 
 export type FeedbackContext = DrillContext | SituationalContext
+
+export interface PushbackQuestion {
+  question: string
+  targetedWeakness: string
+  source: 'live' | 'mock'
+}
 
 function personaSystemPrompt(persona: FutureSelfPersona): string {
   return `You are the user's Future-Self: the fully realized, unshakeable version of who they are becoming. You go by "${persona.name}". Your core demeanor is: ${persona.demeanor}. Your standards and non-negotiables (things you refuse to tolerate in yourself): ${persona.standards}. Your grounding mantra: "${persona.mantra}".
@@ -58,11 +68,17 @@ ${analysisBlock}
 
 Give me feedback as my Future-Self, grounded in the vocal mechanics breakdown above where it's available.`
   }
+  const pushbackBlock = context.pushback
+    ? `
+
+I also ran a live pushback drill on this. I gave an initial spoken response, then got hit with this follow-up: "${context.pushback.question}" — here's how I responded: "${context.pushback.rebuttalTranscript || '(no transcript captured)'}"`
+    : ''
+
   return `I have an upcoming high-stakes situation I need to mentally prepare for:
 
-"${context.scenario}"
+"${context.scenario}"${pushbackBlock}
 
-Give me feedback as my Future-Self, reframing how I should walk into this.`
+Give me feedback as my Future-Self, reframing how I should walk into this${context.pushback ? ', including how I held up under the pushback' : ''}.`
 }
 
 export async function generateFeedback(
@@ -108,6 +124,96 @@ export async function generateFeedback(
   }
 }
 
+const PUSHBACK_SYSTEM_PROMPT = `You are a sharp, realistic stakeholder in a high-stakes conversation — an investor, a skeptical board member, a tough client, or a direct manager, whichever fits the scenario. You are not the user's ally and not their Future-Self; you're the person pushing back on them in the room.
+
+Given the scenario and the user's spoken response (transcribed from voice, so treat minor transcription artifacts generously), find the single weakest, least-supported, or most-hedged claim in what they said. Fire back exactly ONE pointed follow-up question that exploits that weakness — realistic, a little uncomfortable, the kind of question that actually gets asked in that room. Do not soften it and do not explain your reasoning to the user.
+
+Respond with valid JSON only, matching this exact shape, no markdown fences:
+{"question": string, "targetedWeakness": string}
+
+- question: The follow-up pushback question itself, asked directly to the user, 1-2 sentences.
+- targetedWeakness: A short internal note (not shown as dialogue) on which specific claim this targets and why it's weak. 1 sentence.`
+
+function pushbackUserMessage(scenario: string, transcript: string): string {
+  return `Scenario: "${scenario}"
+
+My spoken response: "${transcript || '(no transcript captured — voice recognition unavailable on this device)'}"
+
+Give me one sharp follow-up pushback question targeting the weakest part of my response.`
+}
+
+export async function generatePushback(scenario: string, transcript: string): Promise<PushbackQuestion> {
+  if (!API_KEY) {
+    return mockPushback(scenario, transcript)
+  }
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 300,
+        system: PUSHBACK_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: pushbackUserMessage(scenario, transcript) }],
+      }),
+    })
+
+    if (!response.ok) throw new Error(`Anthropic API error ${response.status}`)
+
+    const data = await response.json()
+    const text: string = data?.content?.[0]?.text ?? ''
+    const parsed = JSON.parse(extractJson(text))
+
+    return {
+      question: parsed.question,
+      targetedWeakness: parsed.targetedWeakness,
+      source: 'live',
+    }
+  } catch (err) {
+    console.warn('Live pushback AI failed, falling back to mock pushback.', err)
+    return mockPushback(scenario, transcript)
+  }
+}
+
+const HEDGE_WORDS = ['maybe', 'i think', 'probably', 'sort of', 'kind of', 'i guess', 'not sure', 'hopefully']
+
+function pickWeakestSentence(transcript: string): string | null {
+  const sentences = transcript
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  if (sentences.length === 0) return null
+
+  const hedged = sentences.find((s) => HEDGE_WORDS.some((h) => s.toLowerCase().includes(h)))
+  if (hedged) return hedged
+
+  return sentences.reduce((shortest, s) => (s.length < shortest.length ? s : shortest), sentences[0])
+}
+
+function mockPushback(scenario: string, transcript: string): PushbackQuestion {
+  const weak = transcript ? pickWeakestSentence(transcript) : null
+
+  if (weak) {
+    return {
+      question: `You said "${weak}" — what happens when I tell you that's not good enough? Walk me through the actual numbers, not the intention.`,
+      targetedWeakness: `The claim "${weak}" wasn't backed with specifics.`,
+      source: 'mock',
+    }
+  }
+
+  return {
+    question: `Before we move on — what's the one objection in this room about "${scenario.slice(0, 80)}${scenario.length > 80 ? '…' : ''}" you're least prepared to answer, and why haven't you addressed it yet?`,
+    targetedWeakness: 'No transcript was captured, so this targets the scenario in general rather than a specific claim.',
+    source: 'mock',
+  }
+}
+
 function extractJson(text: string): string {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
@@ -150,6 +256,18 @@ function mockFeedback(persona: FutureSelfPersona, context: FeedbackContext): Fut
             ? `Drop your shoulders and add a full second of silence after your opening line before you continue — that pause is not dead air, it's authority.`
             : `Plant your feet, exhale before you start the next sentence, and speak the last three words of each sentence slower than the rest.`,
       mindsetReframe: `${name} does not fill silence to feel safe — ${name} lets it work. "${mantra}" That's the standard now, not the exception.`,
+      source: 'mock',
+    }
+  }
+
+  if (context.pushback) {
+    const rebuttal = context.pushback.rebuttalTranscript
+    return {
+      realityCheck: rebuttal
+        ? `When it got pushed — "${context.pushback.question}" — you answered with "${rebuttal.slice(0, 140)}${rebuttal.length > 140 ? '…' : ''}" That's the real test, not the opening pitch.`
+        : `The pushback landed — "${context.pushback.question}" — and no transcript came through on your rebuttal, so I can't tell you how it held up.`,
+      tacticalAdjustment: `Go back to the exact word you reached for right after the pushback hit. That's your tell. Rehearse the three seconds after the hard question, not just the opening.`,
+      mindsetReframe: `${name} isn't shaken by the follow-up — ${name} expects it. "${mantra}" The pushback is the room testing whether you meant it.`,
       source: 'mock',
     }
   }

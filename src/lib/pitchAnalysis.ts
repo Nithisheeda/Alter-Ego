@@ -10,6 +10,13 @@ export interface DynamicsSample {
   volume: number
 }
 
+/** A single pitch/volume reading anchored to seconds elapsed since recording start. */
+export interface TelemetrySample {
+  t: number
+  pitchHz: number | null
+  volume: number
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -102,4 +109,11 @@ export function isMonotoneWindow(history: DynamicsSample[], now: number): boolea
   const volumeRange = Math.max(...volumes) - Math.min(...volumes)
 
   return pitchRange < PITCH_FLAT_THRESHOLD_HZ && volumeRange < VOLUME_FLAT_THRESHOLD
+}
+
+/** Overall pitch range (max-min) across a take's voiced samples — a simple variance proxy. */
+export function computePitchVarianceHz(telemetry: TelemetrySample[]): number | null {
+  const voiced = telemetry.map((s) => s.pitchHz).filter((p): p is number => p !== null)
+  if (voiced.length < 2) return null
+  return Math.round(Math.max(...voiced) - Math.min(...voiced))
 }

@@ -3,6 +3,7 @@ import { PersonaBuilder } from './components/PersonaBuilder'
 import { DrillMode } from './components/DrillMode'
 import { SituationalPrep } from './components/SituationalPrep'
 import { StatusBadge } from './components/StatusBadge'
+import { MasteryAnalyticsDrawer } from './components/MasteryAnalyticsDrawer'
 import { loadPersona, savePersona, isPersonaComplete } from './lib/storage'
 import type { FutureSelfPersona } from './types'
 
@@ -11,6 +12,7 @@ type Tab = 'drill' | 'situational'
 function App() {
   const [persona, setPersona] = useState<FutureSelfPersona>(() => loadPersona())
   const [tab, setTab] = useState<Tab>('drill')
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
 
   const personaReady = isPersonaComplete(persona)
 
@@ -37,7 +39,16 @@ function App() {
               work — grounded, exacting, unshakeable.
             </p>
           </div>
-          <StatusBadge />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setAnalyticsOpen(true)}
+              className="min-h-11 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/70 transition hover:border-violet-400/40 hover:text-white"
+            >
+              Mastery Analytics
+            </button>
+            <StatusBadge />
+          </div>
         </header>
 
         <div className="space-y-6">
@@ -65,6 +76,8 @@ function App() {
           Persona data stays on this device via localStorage.
         </footer>
       </div>
+
+      <MasteryAnalyticsDrawer open={analyticsOpen} onClose={() => setAnalyticsOpen(false)} />
     </div>
   )
 }

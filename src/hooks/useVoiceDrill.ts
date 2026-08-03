@@ -8,6 +8,7 @@ import {
   sampleVolume,
   SAMPLE_INTERVAL_MS,
   type DynamicsSample,
+  type TelemetrySample,
 } from '../lib/pitchAnalysis'
 
 const PAUSE_THRESHOLD_SECONDS = 1.2
@@ -28,6 +29,7 @@ interface UseVoiceDrillResult {
   transcriptionWarning: string | null
   metrics: SpeechMetrics | null
   audioUrl: string | null
+  telemetry: TelemetrySample[]
   monotoneWarning: boolean
   hasSpeechRecognition: boolean
   start: () => void
@@ -58,6 +60,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const [transcriptionWarning, setTranscriptionWarning] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<SpeechMetrics | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [telemetry, setTelemetry] = useState<TelemetrySample[]>([])
   const [monotoneWarning, setMonotoneWarning] = useState(false)
 
   const streamRef = useRef<MediaStream | null>(null)
@@ -66,6 +69,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
   const pitchAnalyserRef = useRef<AnalyserNode | null>(null)
   const pitchBufferRef = useRef<Float32Array<ArrayBuffer> | null>(null)
   const dynamicsHistoryRef = useRef<DynamicsSample[]>([])
+  const telemetryRef = useRef<TelemetrySample[]>([])
   const lastPitchSampleAtRef = useRef(0)
   const rafRef = useRef<number | null>(null)
   const recognitionRef = useRef<NonNullable<ReturnType<typeof createRecognition>> | null>(null)
@@ -117,6 +121,8 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       while (history.length > 0 && history[0].time < windowStart) history.shift()
 
       setMonotoneWarning(isMonotoneWindow(history, now))
+
+      telemetryRef.current.push({ t: (now - startTimeRef.current) / 1000, pitchHz, volume })
     }
 
     rafRef.current = requestAnimationFrame(tickLevels)
@@ -171,8 +177,10 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       pitchAnalyserRef.current = pitchAnalyser
       pitchBufferRef.current = null
       dynamicsHistoryRef.current = []
+      telemetryRef.current = []
       lastPitchSampleAtRef.current = 0
       setMonotoneWarning(false)
+      setTelemetry([])
 
       audioChunksRef.current = []
       try {
@@ -315,6 +323,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
       longestPauseSeconds: Number(longestPauseSeconds.toFixed(1)),
       transcript: usedFallback ? '' : transcript,
     })
+    setTelemetry([...telemetryRef.current])
     setStatus('done')
   }, [fallbackWordCount, status, stopMediaStream, stopVisuals])
 
@@ -330,6 +339,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     setMetrics(null)
     setLevels(new Array(BAR_COUNT).fill(0.05))
     setMonotoneWarning(false)
+    setTelemetry([])
     // Does not revoke — see the note in start().
     setAudioUrl(null)
   }, [cleanupAudio])
@@ -351,6 +361,7 @@ export function useVoiceDrill(fallbackWordCount: number): UseVoiceDrillResult {
     transcriptionWarning,
     metrics,
     audioUrl,
+    telemetry,
     monotoneWarning,
     hasSpeechRecognition: Boolean(SpeechRecognitionCtor),
     start,
