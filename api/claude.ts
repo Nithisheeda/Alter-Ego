@@ -7,8 +7,32 @@ const ANTHROPIC_VERSION = '2023-06-01'
 const DEFAULT_MODEL = 'claude-sonnet-4-5'
 const MAX_TOKENS_CAP = 1024
 
+type PromptMode = 'speech' | 'persona' | 'dual'
+
+function isPromptMode(value: unknown): value is PromptMode {
+  return value === 'speech' || value === 'persona' || value === 'dual'
+}
+
+// Layered on top of whatever system prompt the client sends, only when it
+// explicitly asks for a mode. Callers using their own saved API key bypass
+// this proxy entirely (see ai.ts), so this only governs proxy-routed calls.
+const PROMPT_MODE_DIRECTIVES: Record<PromptMode, string> = {
+  speech:
+    'Analysis mode: SPEECH. Focus on concrete vocal delivery mechanics — pacing, pause discipline, diction, and pitch/volume — drawn strictly from the metrics and transcript provided. Treat identity/persona framing as color, not the main analysis.',
+  persona:
+    "Analysis mode: PERSONA. Focus on whether the user's words and posture align with their stated Future-Self identity, standards, and mantra. Vocal delivery mechanics are secondary context only.",
+  dual: "Analysis mode: DUAL. Give equal weight to (1) SPEECH ANALYSIS — concrete vocal delivery mechanics (pace, pauses, diction, pitch/volume) drawn from the metrics provided, and (2) PERSONA ANALYSIS — whether the delivery and content reflect the user's stated Future-Self identity, standards, and mantra. Address both dimensions explicitly in the response; do not collapse into only one.",
+}
+
+function applyPromptMode(system: string | undefined, mode: unknown): string | undefined {
+  if (!isPromptMode(mode)) return system
+  const directive = PROMPT_MODE_DIRECTIVES[mode]
+  return system ? `${system}\n\n${directive}` : directive
+}
+
 interface ClaudeProxyPayload {
   system?: string
+  mode?: string
   messages?: Array<{ role: string; content: string }>
   max_tokens?: number
   model?: string
@@ -101,7 +125,7 @@ export default async function handler(req: Request): Promise<Response> {
       body: JSON.stringify({
         model: payload.model || DEFAULT_MODEL,
         max_tokens: Math.min(payload.max_tokens ?? 512, MAX_TOKENS_CAP),
-        system: payload.system,
+        system: applyPromptMode(payload.system, payload.mode),
         messages: payload.messages,
       }),
     })

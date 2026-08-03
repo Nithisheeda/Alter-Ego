@@ -11,14 +11,26 @@ export function hasCustomApiKey(): boolean {
   return Boolean(loadCustomApiKey())
 }
 
+/** Tells the /api/claude proxy which analysis lens to layer onto the system prompt — see api/claude.ts. */
+export type PromptMode = 'speech' | 'persona' | 'dual'
+
 /**
  * Key resolution, in order:
  * 1. A user-supplied key saved in Settings (localStorage) — called directly
- *    from the browser.
- * 2. The `/api/claude` serverless proxy, which holds the real key server-side.
+ *    from the browser. The `mode` param is not sent here: Anthropic's API
+ *    rejects unrecognized body fields, and dual-mode augmentation is a
+ *    proxy-only feature (a bring-your-own-key user's prompt goes through
+ *    verbatim).
+ * 2. The `/api/claude` serverless proxy, which holds the real key
+ *    server-side and applies `mode` to the system prompt.
  * 3. Callers catch failures from this and fall back to mock heuristics.
  */
-async function callClaude(system: string, userContent: string, maxTokens: number): Promise<string> {
+async function callClaude(
+  system: string,
+  userContent: string,
+  maxTokens: number,
+  mode?: PromptMode,
+): Promise<string> {
   const customKey = loadCustomApiKey()
 
   const response = customKey
@@ -44,6 +56,7 @@ async function callClaude(system: string, userContent: string, maxTokens: number
           model: MODEL,
           max_tokens: maxTokens,
           system,
+          mode,
           messages: [{ role: 'user', content: userContent }],
         }),
       })
@@ -136,7 +149,7 @@ export async function generateFeedback(
   context: FeedbackContext,
 ): Promise<FutureSelfFeedback> {
   try {
-    const text = await callClaude(personaSystemPrompt(persona), userMessage(context), 512)
+    const text = await callClaude(personaSystemPrompt(persona), userMessage(context), 512, 'dual')
     const parsed = JSON.parse(extractJson(text))
 
     return {
