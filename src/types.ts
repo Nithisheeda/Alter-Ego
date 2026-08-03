@@ -3,6 +3,8 @@ export interface FutureSelfPersona {
   demeanor: string
   standards: string
   mantra: string
+  /** The specific friction point this persona has already mastered, e.g. "Unshakable calm under aggressive cross-examination". Anchors competence-based coaching rather than generic tone-matching. */
+  masteryDomain: string
 }
 
 export const DEFAULT_PERSONA: FutureSelfPersona = {
@@ -10,6 +12,7 @@ export const DEFAULT_PERSONA: FutureSelfPersona = {
   demeanor: '',
   standards: '',
   mantra: '',
+  masteryDomain: '',
 }
 
 export type PassagePart =

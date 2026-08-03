@@ -25,7 +25,13 @@ export function isPersonaComplete(persona: FutureSelfPersona): boolean {
   )
 }
 
-const PERSONA_FIELDS: Array<keyof FutureSelfPersona> = ['name', 'demeanor', 'standards', 'mantra']
+const PERSONA_FIELDS: Array<keyof FutureSelfPersona> = [
+  'name',
+  'demeanor',
+  'standards',
+  'mantra',
+  'masteryDomain',
+]
 
 /** Parses and validates a persona JSON export. Throws with a user-facing message on invalid input. */
 export function parsePersonaJson(raw: string): FutureSelfPersona {

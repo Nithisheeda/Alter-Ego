@@ -19,6 +19,8 @@ import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
 import { generateExecutiveAnalysis, type ExecutiveAnalysis } from '../lib/executiveAnalysis'
 import { ExecutiveAnalysisCard } from './ExecutiveAnalysisCard'
+import { generatePersonaDiagnostic, type PersonaDiagnostic } from '../lib/personaDiagnostic'
+import { PersonaDiagnosticCard } from './PersonaDiagnosticCard'
 import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
 
 const DEFAULT_TARGET_WPM = 130
@@ -49,6 +51,9 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [executiveAnalysis, setExecutiveAnalysis] = useState<ExecutiveAnalysis | null>(null)
   const [executiveLoading, setExecutiveLoading] = useState(false)
+  const [scenarioTag, setScenarioTag] = useState('')
+  const [personaDiagnostic, setPersonaDiagnostic] = useState<PersonaDiagnostic | null>(null)
+  const [personaDiagnosticLoading, setPersonaDiagnosticLoading] = useState(false)
   const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
@@ -188,11 +193,30 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
     }
   }
 
+  async function handleRequestPersonaDiagnostic() {
+    if (!drill.metrics || !personaReady) return
+    setPersonaDiagnosticLoading(true)
+    setPersonaDiagnostic(null)
+    try {
+      const result = await generatePersonaDiagnostic({
+        persona,
+        scenarioTag,
+        transcript: drill.metrics.transcript,
+        metrics: drill.metrics,
+        analysis,
+      })
+      setPersonaDiagnostic(result)
+    } finally {
+      setPersonaDiagnosticLoading(false)
+    }
+  }
+
   function handleNewAttempt() {
     // Keeps the selected passage — only the recorder/metrics/feedback reset.
     drill.reset()
     setFeedback(null)
     setExecutiveAnalysis(null)
+    setPersonaDiagnostic(null)
     drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
@@ -432,12 +456,37 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
                 {executiveLoading ? 'Running executive analysis…' : 'Get Executive Analysis'}
               </button>
             )}
+            {!personaDiagnostic && (
+              <button
+                type="button"
+                onClick={handleRequestPersonaDiagnostic}
+                disabled={personaDiagnosticLoading || !personaReady}
+                className="min-h-11 w-full rounded-lg border border-amber-400/40 bg-amber-500/10 px-5 py-3 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {personaDiagnosticLoading ? 'Running self-distancing diagnostic…' : 'Run Persona Diagnostic'}
+              </button>
+            )}
             {!personaReady && (
               <p className="text-xs text-white/40">
-                Complete your Future-Self persona above to unlock Future-Self feedback and Mode B
-                alter-ego coaching.
+                Complete your Future-Self persona above to unlock Future-Self feedback, Mode B
+                alter-ego coaching, and the persona diagnostic.
               </p>
             )}
+          </div>
+        )}
+
+        {drill.metrics && personaReady && (
+          <div className="mt-3">
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+              Target Scenario (optional, for Persona Diagnostic)
+            </label>
+            <input
+              type="text"
+              value={scenarioTag}
+              onChange={(e) => setScenarioTag(e.target.value)}
+              placeholder="e.g. Salary Negotiation, Crisis Update"
+              className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+            />
           </div>
         )}
       </div>
@@ -445,6 +494,10 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
       {analysis && <VocalAnalysisCard analysis={analysis} />}
 
       {executiveAnalysis && <ExecutiveAnalysisCard analysis={executiveAnalysis} />}
+
+      {personaDiagnostic && (
+        <PersonaDiagnosticCard diagnostic={personaDiagnostic} personaName={persona.name.trim() || 'your Future-Self'} />
+      )}
 
       {drill.audioUrl && drill.metrics && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">

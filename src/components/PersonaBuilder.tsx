@@ -31,6 +31,12 @@ const FIELDS: Array<{
     placeholder: 'e.g. "I do not rush what deserves weight."',
     multiline: true,
   },
+  {
+    key: 'masteryDomain',
+    label: 'Mastery Domain / Proven Trait (optional)',
+    placeholder: 'e.g. "Unshakable calm under aggressive executive cross-examination"',
+    multiline: true,
+  },
 ]
 
 export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
