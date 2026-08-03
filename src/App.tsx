@@ -6,15 +6,23 @@ import { StatusBadge } from './components/StatusBadge'
 import { MasteryAnalyticsDrawer } from './components/MasteryAnalyticsDrawer'
 import { WarmUpModal } from './components/WarmUpModal'
 import { SettingsModal } from './components/SettingsModal'
-import { loadPersona, savePersona, isPersonaComplete } from './lib/storage'
+import {
+  loadPersona,
+  savePersona,
+  isPersonaComplete,
+  loadPersonaLibrary,
+  addPersonaToLibrary,
+  removePersonaFromLibrary,
+} from './lib/storage'
 import { hasCustomApiKey } from './lib/ai'
 import { loadUserFirstName } from './lib/settings'
-import type { FutureSelfPersona } from './types'
+import type { FutureSelfPersona, SavedPersona } from './types'
 
 type Tab = 'drill' | 'situational'
 
 function App() {
   const [persona, setPersona] = useState<FutureSelfPersona>(() => loadPersona())
+  const [personaLibrary, setPersonaLibrary] = useState<SavedPersona[]>(() => loadPersonaLibrary())
   const [tab, setTab] = useState<Tab>('drill')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [warmUpOpen, setWarmUpOpen] = useState(false)
@@ -27,6 +35,14 @@ function App() {
   function handlePersonaChange(next: FutureSelfPersona) {
     setPersona(next)
     savePersona(next)
+  }
+
+  function handleSaveToLibrary(next: FutureSelfPersona) {
+    setPersonaLibrary(addPersonaToLibrary(next))
+  }
+
+  function handleRemoveFromLibrary(id: string) {
+    setPersonaLibrary(removePersonaFromLibrary(id))
   }
 
   return (
@@ -74,7 +90,14 @@ function App() {
         </header>
 
         <div className="space-y-6">
-          <PersonaBuilder persona={persona} onChange={handlePersonaChange} />
+          <PersonaBuilder
+            persona={persona}
+            onChange={handlePersonaChange}
+            library={personaLibrary}
+            onSaveToLibrary={handleSaveToLibrary}
+            onRemoveFromLibrary={handleRemoveFromLibrary}
+            onLoadFromLibrary={() => {}}
+          />
 
           <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-1.5">
             <div className="flex flex-col gap-1 sm:flex-row">
@@ -88,7 +111,12 @@ function App() {
           </div>
 
           {tab === 'drill' ? (
-            <DrillMode persona={persona} personaReady={personaReady} userFirstName={userFirstName} />
+            <DrillMode
+              persona={persona}
+              personaReady={personaReady}
+              userFirstName={userFirstName}
+              personaLibrary={personaLibrary}
+            />
           ) : (
             <SituationalPrep persona={persona} personaReady={personaReady} />
           )}

@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
-import type { FutureSelfPersona } from '../types'
+import type { FutureSelfPersona, SavedPersona } from '../types'
 import { isPersonaComplete, parsePersonaJson, personaExportFilename } from '../lib/storage'
 
 interface PersonaBuilderProps {
   persona: FutureSelfPersona
   onChange: (persona: FutureSelfPersona) => void
+  library: SavedPersona[]
+  onSaveToLibrary: (persona: FutureSelfPersona) => void
+  onRemoveFromLibrary: (id: string) => void
+  onLoadFromLibrary: (persona: SavedPersona) => void
 }
 
 const FIELDS: Array<{
@@ -39,7 +43,14 @@ const FIELDS: Array<{
   },
 ]
 
-export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
+export function PersonaBuilder({
+  persona,
+  onChange,
+  library,
+  onSaveToLibrary,
+  onRemoveFromLibrary,
+  onLoadFromLibrary,
+}: PersonaBuilderProps) {
   const [draft, setDraft] = useState(persona)
   const [savedPulse, setSavedPulse] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -58,6 +69,25 @@ export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
     onChange(draft)
     setSavedPulse(true)
     setTimeout(() => setSavedPulse(false), 1600)
+  }
+
+  function handleSaveToLibrary() {
+    if (!draft.name.trim()) return
+    onChange(draft)
+    onSaveToLibrary(draft)
+  }
+
+  function handleLoadFromLibrary(saved: SavedPersona) {
+    const rest: FutureSelfPersona = {
+      name: saved.name,
+      demeanor: saved.demeanor,
+      standards: saved.standards,
+      mantra: saved.mantra,
+      masteryDomain: saved.masteryDomain,
+    }
+    setDraft(rest)
+    onChange(rest)
+    onLoadFromLibrary(saved)
   }
 
   function handleExport() {
@@ -172,6 +202,14 @@ export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
         >
           Import Persona
         </button>
+        <button
+          type="button"
+          onClick={handleSaveToLibrary}
+          disabled={!draft.name.trim()}
+          className="min-h-11 rounded-lg border border-violet-400/30 bg-violet-500/10 px-5 py-3 text-sm font-medium text-violet-200 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Save to Library
+        </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -191,6 +229,38 @@ export function PersonaBuilder({ persona, onChange }: PersonaBuilderProps) {
         )}
       </div>
       {importError && <p className="mt-3 text-xs text-rose-300">{importError}</p>}
+
+      {library.length > 0 && (
+        <div className="mt-5 border-t border-white/10 pt-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+            Persona Library
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {library.map((saved) => (
+              <div
+                key={saved.id}
+                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 py-1.5 pl-3 pr-1.5 text-xs text-white/70"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleLoadFromLibrary(saved)}
+                  className="transition hover:text-white"
+                >
+                  {saved.name || 'Unnamed persona'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveFromLibrary(saved.id)}
+                  aria-label={`Remove ${saved.name || 'this persona'} from library`}
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-white/40 transition hover:bg-rose-500/20 hover:text-rose-300"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -23,7 +23,11 @@ import { generatePersonaDiagnostic, type PersonaDiagnostic } from '../lib/person
 import { PersonaDiagnosticCard } from './PersonaDiagnosticCard'
 import { generateObserverAnalysis, generateMidDrillCue, type ObserverAnalysis } from '../lib/observerMode'
 import { ObserverAnalysisCard } from './ObserverAnalysisCard'
-import type { FutureSelfFeedback, FutureSelfPersona, PassagePart } from '../types'
+import { generatePersonaRecommendation, type PersonaRecommendation } from '../lib/personaRecommendation'
+import { PersonaRecommendationCard } from './PersonaRecommendationCard'
+import { generatePersonaAlignmentScore, type PersonaAlignmentScore } from '../lib/personaAlignmentScore'
+import { PersonaAlignmentScoreCard } from './PersonaAlignmentScoreCard'
+import type { FutureSelfFeedback, FutureSelfPersona, PassagePart, SavedPersona } from '../types'
 
 const DEFAULT_TARGET_WPM = 130
 const MID_DRILL_CUE_INTERVAL_SECONDS = 15
@@ -32,9 +36,10 @@ interface DrillModeProps {
   persona: FutureSelfPersona
   personaReady: boolean
   userFirstName: string
+  personaLibrary: SavedPersona[]
 }
 
-export function DrillMode({ persona, personaReady, userFirstName }: DrillModeProps) {
+export function DrillMode({ persona, personaReady, userFirstName, personaLibrary }: DrillModeProps) {
   const [passageId, setPassageId] = useState<string>(PASSAGES[0].id)
   const [customDraft, setCustomDraft] = useState('')
   const [customParts, setCustomParts] = useState<PassagePart[] | null>(null)
@@ -62,6 +67,10 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
   const [observerAnalysis, setObserverAnalysis] = useState<ObserverAnalysis | null>(null)
   const [observerLoading, setObserverLoading] = useState(false)
   const [midDrillCue, setMidDrillCue] = useState<string | null>(null)
+  const [personaRecommendation, setPersonaRecommendation] = useState<PersonaRecommendation | null>(null)
+  const [recommendationLoading, setRecommendationLoading] = useState(false)
+  const [alignmentScore, setAlignmentScore] = useState<PersonaAlignmentScore | null>(null)
+  const [alignmentLoading, setAlignmentLoading] = useState(false)
   const drillCardRef = useRef<HTMLDivElement>(null)
 
   const recording = drill.status === 'recording'
@@ -254,6 +263,38 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
     }
   }
 
+  async function handleRequestPersonaRecommendation() {
+    setRecommendationLoading(true)
+    setPersonaRecommendation(null)
+    try {
+      const result = await generatePersonaRecommendation({
+        savedPersonas: personaLibrary,
+        targetScenario: scenarioTag,
+      })
+      setPersonaRecommendation(result)
+    } finally {
+      setRecommendationLoading(false)
+    }
+  }
+
+  async function handleRequestAlignmentScore() {
+    if (!drill.metrics || !personaReady) return
+    setAlignmentLoading(true)
+    setAlignmentScore(null)
+    try {
+      const result = await generatePersonaAlignmentScore({
+        persona,
+        transcript: drill.metrics.transcript,
+        metrics: drill.metrics,
+        analysis,
+        telemetry: drill.telemetry,
+      })
+      setAlignmentScore(result)
+    } finally {
+      setAlignmentLoading(false)
+    }
+  }
+
   function handleNewAttempt() {
     // Keeps the selected passage — only the recorder/metrics/feedback reset.
     drill.reset()
@@ -261,6 +302,8 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
     setExecutiveAnalysis(null)
     setPersonaDiagnostic(null)
     setObserverAnalysis(null)
+    setPersonaRecommendation(null)
+    setAlignmentScore(null)
     drillCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
@@ -525,6 +568,26 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
                 {observerLoading ? 'Running observer analysis…' : 'Run Observer Analysis'}
               </button>
             )}
+            {!personaRecommendation && (
+              <button
+                type="button"
+                onClick={handleRequestPersonaRecommendation}
+                disabled={recommendationLoading}
+                className="min-h-11 w-full rounded-lg border border-fuchsia-400/40 bg-fuchsia-500/10 px-5 py-3 text-sm font-medium text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {recommendationLoading ? 'Finding the best-fit persona…' : 'Recommend Persona for Scenario'}
+              </button>
+            )}
+            {!alignmentScore && (
+              <button
+                type="button"
+                onClick={handleRequestAlignmentScore}
+                disabled={alignmentLoading || !personaReady}
+                className="min-h-11 w-full rounded-lg border border-rose-400/40 bg-rose-500/10 px-5 py-3 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+              >
+                {alignmentLoading ? 'Scoring persona alignment…' : 'Get Persona Alignment Score'}
+              </button>
+            )}
             {!personaReady && (
               <p className="text-xs text-white/40">
                 Complete your Future-Self persona above to unlock Future-Self feedback, Mode B
@@ -540,10 +603,10 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
           </div>
         )}
 
-        {drill.metrics && personaReady && (
+        {drill.metrics && (
           <div className="mt-3">
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
-              Target Scenario (optional, for Persona Diagnostic)
+              Target Scenario (optional, for Persona Diagnostic &amp; Recommendation)
             </label>
             <input
               type="text"
@@ -580,6 +643,12 @@ export function DrillMode({ persona, personaReady, userFirstName }: DrillModePro
       )}
 
       {observerAnalysis && <ObserverAnalysisCard analysis={observerAnalysis} userFirstName={userFirstName} />}
+
+      {personaRecommendation && <PersonaRecommendationCard recommendation={personaRecommendation} />}
+
+      {alignmentScore && (
+        <PersonaAlignmentScoreCard alignment={alignmentScore} personaName={persona.name.trim() || 'your Future-Self'} />
+      )}
 
       {drill.audioUrl && drill.metrics && (
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">

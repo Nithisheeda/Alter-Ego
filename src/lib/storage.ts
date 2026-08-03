@@ -1,6 +1,7 @@
-import { DEFAULT_PERSONA, type FutureSelfPersona } from '../types'
+import { DEFAULT_PERSONA, type FutureSelfPersona, type SavedPersona } from '../types'
 
 const PERSONA_KEY = 'alter-ego:persona'
+const PERSONA_LIBRARY_KEY = 'alter-ego:persona-library'
 
 export function loadPersona(): FutureSelfPersona {
   try {
@@ -63,4 +64,41 @@ export function parsePersonaJson(raw: string): FutureSelfPersona {
 export function personaExportFilename(persona: FutureSelfPersona): string {
   const slug = persona.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
   return `alter-ego-persona${slug ? `-${slug}` : ''}.json`
+}
+
+/**
+ * The persona library holds every persona the user has saved, distinct from
+ * whichever single persona is "active" via loadPersona()/savePersona() above.
+ * The scenario-to-persona recommendation engine picks among these.
+ */
+export function loadPersonaLibrary(): SavedPersona[] {
+  try {
+    const raw = localStorage.getItem(PERSONA_LIBRARY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (entry): entry is SavedPersona => typeof entry === 'object' && entry !== null && typeof entry.id === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+export function savePersonaLibrary(library: SavedPersona[]) {
+  localStorage.setItem(PERSONA_LIBRARY_KEY, JSON.stringify(library))
+}
+
+export function addPersonaToLibrary(persona: FutureSelfPersona): SavedPersona[] {
+  const library = loadPersonaLibrary()
+  const saved: SavedPersona = { ...persona, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
+  const next = [...library, saved]
+  savePersonaLibrary(next)
+  return next
+}
+
+export function removePersonaFromLibrary(id: string): SavedPersona[] {
+  const next = loadPersonaLibrary().filter((p) => p.id !== id)
+  savePersonaLibrary(next)
+  return next
 }

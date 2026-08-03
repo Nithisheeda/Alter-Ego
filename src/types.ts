@@ -15,6 +15,13 @@ export const DEFAULT_PERSONA: FutureSelfPersona = {
   masteryDomain: '',
 }
 
+/** A persona saved to the user's library — the scenario-to-persona
+ * recommendation engine picks among these, distinct from whichever one is
+ * currently active in App state. */
+export interface SavedPersona extends FutureSelfPersona {
+  id: string
+}
+
 export type PassagePart =
   | { type: 'text'; text: string }
   | { type: 'power'; text: string }
