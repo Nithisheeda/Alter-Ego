@@ -51,8 +51,11 @@ export function DrillMode({ persona, personaReady }: DrillModeProps) {
   const canRecord = Boolean(activePassage) && !recording
 
   const analysis = useMemo(
-    () => (activePassage && drill.metrics ? analyzeDelivery(activePassage.parts, drill.metrics) : null),
-    [activePassage, drill.metrics],
+    () =>
+      activePassage && drill.metrics
+        ? analyzeDelivery(activePassage.parts, drill.metrics, drill.telemetry)
+        : null,
+    [activePassage, drill.metrics, drill.telemetry],
   )
 
   // Live elapsed-time ticker driving the teleprompter's auto-scroll pace —

@@ -1,5 +1,7 @@
 import type { PassagePart, SpeechMetrics } from '../types'
 import { passageDesignatedPauses, passageDictionWords } from './passages'
+import { computeAuthorityBand, percentInAuthorityBand } from './telemetryAnalysis'
+import type { TelemetrySample } from './pitchAnalysis'
 
 export interface ScoredDimension {
   score: number | null
@@ -15,6 +17,7 @@ export interface DeliveryAnalysis {
   pauseDiscipline: ScoredDimension
   dictionClarity: DictionDimension
   pacing: ScoredDimension
+  pitchControl: ScoredDimension
   overallScore: number | null
 }
 
@@ -131,18 +134,49 @@ function analyzePacing(metrics: SpeechMetrics): ScoredDimension {
   }
 }
 
-export function analyzeDelivery(parts: PassagePart[], metrics: SpeechMetrics): DeliveryAnalysis {
+/**
+ * Percentage of voiced time spent inside the take's own executive-authority
+ * pitch band — see computeAuthorityBand for why the band is baseline-relative
+ * rather than a fixed Hz range.
+ */
+function analyzePitchControl(telemetry: TelemetrySample[]): ScoredDimension {
+  const band = computeAuthorityBand(telemetry)
+  if (!band) {
+    return {
+      score: null,
+      label: 'Unmeasured',
+      note: 'Not enough voiced signal was captured to assess pitch range control.',
+    }
+  }
+
+  const percent = percentInAuthorityBand(telemetry, band)
+  const label = percent >= 70 ? 'Grounded' : percent >= 45 ? 'Drifting' : 'Erratic'
+
+  return {
+    score: percent,
+    label,
+    note: `${percent}% of this take stayed within your executive authority range (${Math.round(band.low)}–${Math.round(band.high)}Hz around a ${Math.round(band.baseline)}Hz baseline).`,
+  }
+}
+
+export function analyzeDelivery(
+  parts: PassagePart[],
+  metrics: SpeechMetrics,
+  telemetry: TelemetrySample[] = [],
+): DeliveryAnalysis {
   const designatedPauses = passageDesignatedPauses(parts)
   const dictionWords = passageDictionWords(parts)
 
   const pauseDiscipline = analyzePauseDiscipline(designatedPauses, metrics)
   const dictionClarity = analyzeDiction(dictionWords, metrics)
   const pacing = analyzePacing(metrics)
+  const pitchControl = analyzePitchControl(telemetry)
 
   const weighted: Array<[number | null, number]> = [
-    [pauseDiscipline.score, 0.35],
-    [dictionClarity.score, 0.35],
-    [pacing.score, 0.3],
+    [pauseDiscipline.score, 0.3],
+    [dictionClarity.score, 0.3],
+    [pacing.score, 0.25],
+    [pitchControl.score, 0.15],
   ]
   const available = weighted.filter((w): w is [number, number] => w[0] !== null)
   const totalWeight = available.reduce((sum, [, weight]) => sum + weight, 0)
@@ -151,5 +185,5 @@ export function analyzeDelivery(parts: PassagePart[], metrics: SpeechMetrics): D
       ? Math.round(available.reduce((sum, [score, weight]) => sum + score * weight, 0) / totalWeight)
       : null
 
-  return { pauseDiscipline, dictionClarity, pacing, overallScore }
+  return { pauseDiscipline, dictionClarity, pacing, pitchControl, overallScore }
 }

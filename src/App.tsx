@@ -4,6 +4,7 @@ import { DrillMode } from './components/DrillMode'
 import { SituationalPrep } from './components/SituationalPrep'
 import { StatusBadge } from './components/StatusBadge'
 import { MasteryAnalyticsDrawer } from './components/MasteryAnalyticsDrawer'
+import { WarmUpModal } from './components/WarmUpModal'
 import { loadPersona, savePersona, isPersonaComplete } from './lib/storage'
 import type { FutureSelfPersona } from './types'
 
@@ -13,6 +14,7 @@ function App() {
   const [persona, setPersona] = useState<FutureSelfPersona>(() => loadPersona())
   const [tab, setTab] = useState<Tab>('drill')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
+  const [warmUpOpen, setWarmUpOpen] = useState(false)
 
   const personaReady = isPersonaComplete(persona)
 
@@ -39,7 +41,14 @@ function App() {
               work — grounded, exacting, unshakeable.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setWarmUpOpen(true)}
+              className="min-h-11 rounded-full border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-xs font-medium text-rose-200 transition hover:border-rose-400/50 hover:bg-rose-500/20"
+            >
+              Emergency Warm-Up
+            </button>
             <button
               type="button"
               onClick={() => setAnalyticsOpen(true)}
@@ -78,6 +87,7 @@ function App() {
       </div>
 
       <MasteryAnalyticsDrawer open={analyticsOpen} onClose={() => setAnalyticsOpen(false)} />
+      <WarmUpModal open={warmUpOpen} onClose={() => setWarmUpOpen(false)} />
     </div>
   )
 }

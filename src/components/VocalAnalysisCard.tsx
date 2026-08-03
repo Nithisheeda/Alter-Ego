@@ -38,6 +38,7 @@ export function VocalAnalysisCard({ analysis }: VocalAnalysisCardProps) {
           }
         />
         <DimensionRow title="Pacing & WPM" dimension={analysis.pacing} />
+        <DimensionRow title="Pitch Range Control" dimension={analysis.pitchControl} />
       </div>
     </div>
   )

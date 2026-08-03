@@ -70,3 +70,40 @@ export function findPitchMonotoneSegments(telemetry: TelemetrySample[]): FlatSeg
   }
   return segments
 }
+
+export interface AuthorityBand {
+  baseline: number
+  low: number
+  high: number
+  tensionThreshold: number
+}
+
+/**
+ * Target vocal bands are anchored to the take's own median pitch rather than
+ * a fixed universal range — physiological speaking pitch varies too much
+ * across voices for a one-size-fits-all Hz band to mean anything. "Executive
+ * Authority" is a controlled range around that personal baseline; well above
+ * it is flagged as "High Tension" (the upward pitch creep that shows up under
+ * nerves or strain).
+ */
+export function computeAuthorityBand(telemetry: TelemetrySample[]): AuthorityBand | null {
+  const voiced = telemetry.map((s) => s.pitchHz).filter((p): p is number => p !== null)
+  if (voiced.length < 4) return null
+
+  const sorted = [...voiced].sort((a, b) => a - b)
+  const baseline = sorted[Math.floor(sorted.length / 2)]
+
+  return {
+    baseline,
+    low: baseline * 0.85,
+    high: baseline * 1.2,
+    tensionThreshold: baseline * 1.45,
+  }
+}
+
+export function percentInAuthorityBand(telemetry: TelemetrySample[], band: AuthorityBand): number {
+  const voiced = telemetry.map((s) => s.pitchHz).filter((p): p is number => p !== null)
+  if (voiced.length === 0) return 0
+  const inRange = voiced.filter((p) => p >= band.low && p <= band.high).length
+  return Math.round((inRange / voiced.length) * 100)
+}

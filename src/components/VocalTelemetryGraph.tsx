@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { TelemetrySample } from '../lib/pitchAnalysis'
-import { findPitchMonotoneSegments, findVolumeDrops } from '../lib/telemetryAnalysis'
+import { computeAuthorityBand, findPitchMonotoneSegments, findVolumeDrops } from '../lib/telemetryAnalysis'
 
 interface VocalTelemetryGraphProps {
   telemetry: TelemetrySample[]
@@ -24,8 +24,11 @@ export function VocalTelemetryGraph({ telemetry, durationSeconds }: VocalTelemet
 
   const span = Math.max(durationSeconds, telemetry[telemetry.length - 1].t, 0.1)
   const voicedPitches = telemetry.map((s) => s.pitchHz).filter((p): p is number => p !== null)
-  const pitchMin = voicedPitches.length ? Math.min(...voicedPitches) : 60
-  const pitchMax = voicedPitches.length ? Math.max(...voicedPitches) : 500
+  const band = computeAuthorityBand(telemetry)
+
+  const bandExtent = band ? [band.low, band.tensionThreshold] : []
+  const pitchMin = voicedPitches.length ? Math.min(...voicedPitches, ...bandExtent) : 60
+  const pitchMax = voicedPitches.length ? Math.max(...voicedPitches, ...bandExtent) : 500
   const pitchRange = Math.max(1, pitchMax - pitchMin)
 
   const xFor = (t: number) => (t / span) * WIDTH
@@ -51,18 +54,44 @@ export function VocalTelemetryGraph({ telemetry, durationSeconds }: VocalTelemet
 
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/40">
-        <span className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-sky-400" /> Pitch (Hz)
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Volume (dB)
-          </span>
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/40">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-sky-400" /> Pitch (Hz)
         </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-400" /> Volume (dB)
+        </span>
+        {band && (
+          <>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-sm bg-emerald-400/30" /> Executive Authority Range
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-sm bg-rose-400/40" /> High Tension Warning
+            </span>
+          </>
+        )}
       </div>
 
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} preserveAspectRatio="none" className="h-24 w-full">
+        {band && (
+          <>
+            <rect
+              x={0}
+              y={yForPitch(band.high)}
+              width={WIDTH}
+              height={Math.max(0, yForPitch(band.low) - yForPitch(band.high))}
+              fill="rgba(52,211,153,0.10)"
+            />
+            <rect
+              x={0}
+              y={yForPitch(pitchMax)}
+              width={WIDTH}
+              height={Math.max(0, yForPitch(band.tensionThreshold) - yForPitch(pitchMax))}
+              fill="rgba(248,113,113,0.12)"
+            />
+          </>
+        )}
         {flaggedSegments.map((seg, i) => (
           <rect
             key={i}

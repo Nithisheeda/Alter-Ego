@@ -7,6 +7,7 @@ import { AudioPlayback } from './AudioPlayback'
 import { AudioWave } from './AudioWave'
 import { MetricBadge } from './MetricBadge'
 import { VocalTelemetryGraph } from './VocalTelemetryGraph'
+import { TtsControls } from './TtsControls'
 import type { FutureSelfFeedback, FutureSelfPersona, SpeechMetrics } from '../types'
 import type { TelemetrySample } from '../lib/pitchAnalysis'
 
@@ -249,6 +250,9 @@ export function SituationalPrep({ persona, personaReady }: SituationalPrepProps)
                 <p className="text-sm font-medium leading-relaxed text-rose-100">
                   {pushbackQuestion.question}
                 </p>
+                <div className="mt-3">
+                  <TtsControls text={pushbackQuestion.question} label="Listen to Pushback" />
+                </div>
               </div>
             )}
 

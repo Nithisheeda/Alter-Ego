@@ -1,4 +1,5 @@
 import type { FutureSelfFeedback, FutureSelfPersona } from '../types'
+import { TtsControls } from './TtsControls'
 
 interface FeedbackCardProps {
   feedback: FutureSelfFeedback
@@ -8,6 +9,7 @@ interface FeedbackCardProps {
 
 export function FeedbackCard({ feedback, persona, onTryAgain }: FeedbackCardProps) {
   const name = persona.name.trim() || 'Your Future-Self'
+  const spokenText = `${feedback.realityCheck} ${feedback.tacticalAdjustment} ${feedback.mindsetReframe}`
 
   return (
     <div className="animate-fade-in-up rounded-2xl border border-violet-400/20 bg-gradient-to-b from-violet-500/[0.07] to-transparent p-4 sm:p-6">
@@ -30,6 +32,10 @@ export function FeedbackCard({ feedback, persona, onTryAgain }: FeedbackCardProp
         >
           {feedback.source === 'live' ? 'Live AI' : 'Mock'}
         </span>
+      </div>
+
+      <div className="mb-4">
+        <TtsControls text={spokenText} />
       </div>
 
       <div className="space-y-4">
