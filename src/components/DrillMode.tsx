@@ -19,7 +19,12 @@ import { FeedbackCard } from './FeedbackCard'
 import { generateFeedback } from '../lib/ai'
 import { generateExecutiveAnalysis, type ExecutiveAnalysis } from '../lib/executiveAnalysis'
 import { ExecutiveAnalysisCard } from './ExecutiveAnalysisCard'
-import { generatePersonaDiagnostic, type PersonaDiagnostic } from '../lib/personaDiagnostic'
+import {
+  generatePersonaDiagnostic,
+  TONE_PRESETS,
+  type PersonaDiagnostic,
+  type TonePreset,
+} from '../lib/personaDiagnostic'
 import { PersonaDiagnosticCard } from './PersonaDiagnosticCard'
 import { generateObserverAnalysis, generateMidDrillCue, type ObserverAnalysis } from '../lib/observerMode'
 import { ObserverAnalysisCard } from './ObserverAnalysisCard'
@@ -63,6 +68,10 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
   const [scenarioTag, setScenarioTag] = useState('')
   const [personaDiagnostic, setPersonaDiagnostic] = useState<PersonaDiagnostic | null>(null)
   const [personaDiagnosticLoading, setPersonaDiagnosticLoading] = useState(false)
+  const [maxDurationInput, setMaxDurationInput] = useState('')
+  const [zeroHedgingStrict, setZeroHedgingStrict] = useState(false)
+  const [hedgeBudgetInput, setHedgeBudgetInput] = useState('')
+  const [tonePreset, setTonePreset] = useState<TonePreset | ''>('')
   const [drillGoal, setDrillGoal] = useState('')
   const [observerAnalysis, setObserverAnalysis] = useState<ObserverAnalysis | null>(null)
   const [observerLoading, setObserverLoading] = useState(false)
@@ -232,12 +241,22 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
     setPersonaDiagnosticLoading(true)
     setPersonaDiagnostic(null)
     try {
+      const parsedDuration = Number(maxDurationInput)
+      const parsedHedgeBudget = Number(hedgeBudgetInput)
       const result = await generatePersonaDiagnostic({
         persona,
         scenarioTag,
         transcript: drill.metrics.transcript,
         metrics: drill.metrics,
-        analysis,
+        constraints: {
+          maxDurationSeconds: maxDurationInput.trim() && !Number.isNaN(parsedDuration) ? parsedDuration : null,
+          hedgeBudget: zeroHedgingStrict
+            ? 0
+            : hedgeBudgetInput.trim() && !Number.isNaN(parsedHedgeBudget)
+              ? parsedHedgeBudget
+              : null,
+          tonePreset: tonePreset || null,
+        },
       })
       setPersonaDiagnostic(result)
     } finally {
@@ -620,6 +639,64 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
               placeholder="e.g. Salary Negotiation, Crisis Update"
               className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none focus:ring-1 focus:ring-amber-400/50"
             />
+          </div>
+        )}
+
+        {drill.metrics && personaReady && (
+          <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.03] p-3">
+            <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-white/40">
+              Constraints (optional, for Persona Diagnostic)
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] text-white/40">Max Duration (s)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={maxDurationInput}
+                  onChange={(e) => setMaxDurationInput(e.target.value)}
+                  placeholder="e.g. 45"
+                  className="min-h-9 w-24 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 flex items-center gap-1.5 text-[11px] text-white/40">
+                  <input
+                    type="checkbox"
+                    checked={zeroHedgingStrict}
+                    onChange={(e) => setZeroHedgingStrict(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/30 accent-amber-400"
+                  />
+                  Zero Hedging (Strict)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  disabled={zeroHedgingStrict}
+                  value={hedgeBudgetInput}
+                  onChange={(e) => setHedgeBudgetInput(e.target.value)}
+                  placeholder="Custom budget"
+                  className="min-h-9 w-28 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-white/40">Tone Preset</label>
+                <select
+                  value={tonePreset}
+                  onChange={(e) => setTonePreset(e.target.value as TonePreset | '')}
+                  className="min-h-9 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white focus:border-amber-400/50 focus:outline-none"
+                >
+                  <option value="" className="bg-[#16161e]">
+                    None
+                  </option>
+                  {TONE_PRESETS.map((preset) => (
+                    <option key={preset} value={preset} className="bg-[#16161e]">
+                      {preset}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         )}
 
