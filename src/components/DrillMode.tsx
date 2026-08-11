@@ -37,6 +37,39 @@ import type { FutureSelfFeedback, FutureSelfPersona, PassagePart, SavedPersona }
 const DEFAULT_TARGET_WPM = 130
 const MID_DRILL_CUE_INTERVAL_SECONDS = 15
 
+// Single-select analysis lens: replaces what used to be 6 always-visible
+// buttons + 6 always-stacked result cards with one tab bar, one action
+// button, and one result card at a time — same capabilities, far less
+// scroll/clutter after a take.
+type AnalysisTab = 'future-self' | 'executive' | 'persona' | 'observer' | 'recommend' | 'alignment'
+
+const ANALYSIS_TABS: Array<{ id: AnalysisTab; label: string }> = [
+  { id: 'future-self', label: 'Future-Self' },
+  { id: 'executive', label: 'Executive' },
+  { id: 'persona', label: 'Persona Diagnostic' },
+  { id: 'observer', label: 'Observer' },
+  { id: 'recommend', label: 'Recommend Persona' },
+  { id: 'alignment', label: 'Alignment Score' },
+]
+
+const TAB_ACCENT: Record<AnalysisTab, string> = {
+  'future-self': 'bg-white text-black hover:bg-white/90',
+  executive: 'border border-sky-400/40 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20',
+  persona: 'border border-amber-400/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20',
+  observer: 'border border-teal-400/40 bg-teal-500/10 text-teal-200 hover:bg-teal-500/20',
+  recommend: 'border border-fuchsia-400/40 bg-fuchsia-500/10 text-fuchsia-200 hover:bg-fuchsia-500/20',
+  alignment: 'border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20',
+}
+
+const TAB_ACTIVE_PILL: Record<AnalysisTab, string> = {
+  'future-self': 'border-white/60 bg-white/10 text-white',
+  executive: 'border-sky-400/60 bg-sky-500/20 text-sky-200',
+  persona: 'border-amber-400/60 bg-amber-500/20 text-amber-200',
+  observer: 'border-teal-400/60 bg-teal-500/20 text-teal-200',
+  recommend: 'border-fuchsia-400/60 bg-fuchsia-500/20 text-fuchsia-200',
+  alignment: 'border-rose-400/60 bg-rose-500/20 text-rose-200',
+}
+
 interface DrillModeProps {
   persona: FutureSelfPersona
   personaReady: boolean
@@ -61,6 +94,7 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
   const activeWordCount = activePassage ? passageWordCount(activePassage.parts) : 0
 
   const drill = useVoiceDrill(activeWordCount)
+  const [activeAnalysisTab, setActiveAnalysisTab] = useState<AnalysisTab>('future-self')
   const [feedback, setFeedback] = useState<FutureSelfFeedback | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [executiveAnalysis, setExecutiveAnalysis] = useState<ExecutiveAnalysis | null>(null)
@@ -345,6 +379,76 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
     handleNewAttempt()
   }
 
+  function getActiveTabMeta(): {
+    runLabel: string
+    loadingLabel: string
+    loading: boolean
+    disabled: boolean
+    disabledHint: string | null
+    onRun: () => void
+  } {
+    switch (activeAnalysisTab) {
+      case 'future-self':
+        return {
+          runLabel: feedback ? 'Re-run Future-Self Feedback' : 'Get Future-Self Feedback',
+          loadingLabel: 'Consulting your Future-Self…',
+          loading: feedbackLoading,
+          disabled: feedbackLoading || !personaReady,
+          disabledHint: !personaReady ? 'Complete your Future-Self persona above to unlock this.' : null,
+          onRun: handleRequestFeedback,
+        }
+      case 'executive':
+        return {
+          runLabel: executiveAnalysis ? 'Re-run Executive Analysis' : 'Get Executive Analysis',
+          loadingLabel: 'Running executive analysis…',
+          loading: executiveLoading,
+          disabled: executiveLoading,
+          disabledHint: null,
+          onRun: handleRequestExecutiveAnalysis,
+        }
+      case 'persona':
+        return {
+          runLabel: personaDiagnostic ? 'Re-run Persona Diagnostic' : 'Run Persona Diagnostic',
+          loadingLabel: 'Running self-distancing diagnostic…',
+          loading: personaDiagnosticLoading,
+          disabled: personaDiagnosticLoading || !personaReady,
+          disabledHint: !personaReady ? 'Complete your Future-Self persona above to unlock this.' : null,
+          onRun: handleRequestPersonaDiagnostic,
+        }
+      case 'observer':
+        return {
+          runLabel: observerAnalysis ? 'Re-run Observer Analysis' : 'Run Observer Analysis',
+          loadingLabel: 'Running observer analysis…',
+          loading: observerLoading,
+          disabled: observerLoading || !userFirstName.trim(),
+          disabledHint: !userFirstName.trim()
+            ? "Add your first name in Settings to unlock this — no full persona required."
+            : null,
+          onRun: handleRequestObserverAnalysis,
+        }
+      case 'recommend':
+        return {
+          runLabel: personaRecommendation ? 'Re-run Recommendation' : 'Recommend Persona for Scenario',
+          loadingLabel: 'Finding the best-fit persona…',
+          loading: recommendationLoading,
+          disabled: recommendationLoading,
+          disabledHint: null,
+          onRun: handleRequestPersonaRecommendation,
+        }
+      case 'alignment':
+        return {
+          runLabel: alignmentScore ? 'Re-run Alignment Score' : 'Get Persona Alignment Score',
+          loadingLabel: 'Scoring persona alignment…',
+          loading: alignmentLoading,
+          disabled: alignmentLoading || !personaReady,
+          disabledHint: !personaReady ? 'Complete your Future-Self persona above to unlock this.' : null,
+          onRun: handleRequestAlignmentScore,
+        }
+    }
+  }
+
+  const tabMeta = getActiveTabMeta()
+
   return (
     <div className="space-y-6">
       <div ref={drillCardRef} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
@@ -551,184 +655,166 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
         )}
 
         {drill.metrics && (
-          <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-            {!feedback && (
-              <button
-                type="button"
-                onClick={handleRequestFeedback}
-                disabled={feedbackLoading || !personaReady}
-                className="min-h-11 w-full rounded-lg bg-white px-5 py-3 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {feedbackLoading ? 'Consulting your Future-Self…' : 'Get Future-Self Feedback'}
-              </button>
-            )}
-            {!executiveAnalysis && (
-              <button
-                type="button"
-                onClick={handleRequestExecutiveAnalysis}
-                disabled={executiveLoading}
-                className="min-h-11 w-full rounded-lg border border-sky-400/40 bg-sky-500/10 px-5 py-3 text-sm font-medium text-sky-200 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {executiveLoading ? 'Running executive analysis…' : 'Get Executive Analysis'}
-              </button>
-            )}
-            {!personaDiagnostic && (
-              <button
-                type="button"
-                onClick={handleRequestPersonaDiagnostic}
-                disabled={personaDiagnosticLoading || !personaReady}
-                className="min-h-11 w-full rounded-lg border border-amber-400/40 bg-amber-500/10 px-5 py-3 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {personaDiagnosticLoading ? 'Running self-distancing diagnostic…' : 'Run Persona Diagnostic'}
-              </button>
-            )}
-            {!observerAnalysis && (
-              <button
-                type="button"
-                onClick={handleRequestObserverAnalysis}
-                disabled={observerLoading || !userFirstName.trim()}
-                className="min-h-11 w-full rounded-lg border border-teal-400/40 bg-teal-500/10 px-5 py-3 text-sm font-medium text-teal-200 transition hover:bg-teal-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {observerLoading ? 'Running observer analysis…' : 'Run Observer Analysis'}
-              </button>
-            )}
-            {!personaRecommendation && (
-              <button
-                type="button"
-                onClick={handleRequestPersonaRecommendation}
-                disabled={recommendationLoading}
-                className="min-h-11 w-full rounded-lg border border-fuchsia-400/40 bg-fuchsia-500/10 px-5 py-3 text-sm font-medium text-fuchsia-200 transition hover:bg-fuchsia-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {recommendationLoading ? 'Finding the best-fit persona…' : 'Recommend Persona for Scenario'}
-              </button>
-            )}
-            {!alignmentScore && (
-              <button
-                type="button"
-                onClick={handleRequestAlignmentScore}
-                disabled={alignmentLoading || !personaReady}
-                className="min-h-11 w-full rounded-lg border border-rose-400/40 bg-rose-500/10 px-5 py-3 text-sm font-medium text-rose-200 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-              >
-                {alignmentLoading ? 'Scoring persona alignment…' : 'Get Persona Alignment Score'}
-              </button>
-            )}
-            {!personaReady && (
-              <p className="text-xs text-white/40">
-                Complete your Future-Self persona above to unlock Future-Self feedback, Mode B
-                alter-ego coaching, and the persona diagnostic.
-              </p>
-            )}
-            {!userFirstName.trim() && (
-              <p className="text-xs text-white/40">
-                Add your first name in Settings to unlock Observer Mode's third-person coaching —
-                no full persona required.
-              </p>
-            )}
-          </div>
-        )}
+          <div className="mt-6">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Analysis Lens</p>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              {ANALYSIS_TABS.map((tabOption) => (
+                <button
+                  key={tabOption.id}
+                  type="button"
+                  onClick={() => setActiveAnalysisTab(tabOption.id)}
+                  className={`min-h-9 shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-xs font-medium transition ${
+                    activeAnalysisTab === tabOption.id
+                      ? TAB_ACTIVE_PILL[tabOption.id]
+                      : 'border-white/10 bg-white/5 text-white/50 hover:text-white'
+                  }`}
+                >
+                  {tabOption.label}
+                </button>
+              ))}
+            </div>
 
-        {drill.metrics && (
-          <div className="mt-3">
-            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
-              Target Scenario (optional, for Persona Diagnostic &amp; Recommendation)
-            </label>
-            <input
-              type="text"
-              value={scenarioTag}
-              onChange={(e) => setScenarioTag(e.target.value)}
-              placeholder="e.g. Salary Negotiation, Crisis Update"
-              className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none focus:ring-1 focus:ring-amber-400/50"
-            />
-          </div>
-        )}
-
-        {drill.metrics && personaReady && (
-          <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.03] p-3">
-            <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-white/40">
-              Constraints (optional, for Persona Diagnostic)
-            </p>
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="mb-1 block text-[11px] text-white/40">Max Duration (s)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={maxDurationInput}
-                  onChange={(e) => setMaxDurationInput(e.target.value)}
-                  placeholder="e.g. 45"
-                  className="min-h-9 w-24 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="mb-1 flex items-center gap-1.5 text-[11px] text-white/40">
-                  <input
-                    type="checkbox"
-                    checked={zeroHedgingStrict}
-                    onChange={(e) => setZeroHedgingStrict(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-white/20 bg-black/30 accent-amber-400"
-                  />
-                  Zero Hedging (Strict)
+            {activeAnalysisTab === 'persona' && (
+              <div className="mt-3">
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+                  Target Scenario (optional)
                 </label>
                 <input
-                  type="number"
-                  min={0}
-                  disabled={zeroHedgingStrict}
-                  value={hedgeBudgetInput}
-                  onChange={(e) => setHedgeBudgetInput(e.target.value)}
-                  placeholder="Custom budget"
-                  className="min-h-9 w-28 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                  type="text"
+                  value={scenarioTag}
+                  onChange={(e) => setScenarioTag(e.target.value)}
+                  placeholder="e.g. Salary Negotiation, Crisis Update"
+                  className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] text-white/40">Tone Preset</label>
-                <select
-                  value={tonePreset}
-                  onChange={(e) => setTonePreset(e.target.value as TonePreset | '')}
-                  className="min-h-9 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white focus:border-amber-400/50 focus:outline-none"
-                >
-                  <option value="" className="bg-[#16161e]">
-                    None
-                  </option>
-                  {TONE_PRESETS.map((preset) => (
-                    <option key={preset} value={preset} className="bg-[#16161e]">
-                      {preset}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {drill.metrics && userFirstName.trim() && (
-          <div className="mt-3">
-            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
-              Current Drill Goal (optional, for Observer Mode)
-            </label>
-            <input
-              type="text"
-              value={drillGoal}
-              onChange={(e) => setDrillGoal(e.target.value)}
-              placeholder={activePassage?.title || 'e.g. Delivering with steady, unhurried control'}
-              className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-teal-400/50 focus:outline-none focus:ring-1 focus:ring-teal-400/50"
-            />
+            {activeAnalysisTab === 'recommend' && (
+              <div className="mt-3">
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+                  Target Scenario (optional)
+                </label>
+                <input
+                  type="text"
+                  value={scenarioTag}
+                  onChange={(e) => setScenarioTag(e.target.value)}
+                  placeholder="e.g. Salary Negotiation, Crisis Update"
+                  className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-fuchsia-400/50 focus:outline-none focus:ring-1 focus:ring-fuchsia-400/50"
+                />
+              </div>
+            )}
+
+            {activeAnalysisTab === 'persona' && personaReady && (
+              <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.03] p-3">
+                <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-white/40">
+                  Constraints (optional)
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="mb-1 block text-[11px] text-white/40">Max Duration (s)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxDurationInput}
+                      onChange={(e) => setMaxDurationInput(e.target.value)}
+                      placeholder="e.g. 45"
+                      className="min-h-9 w-24 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 flex items-center gap-1.5 text-[11px] text-white/40">
+                      <input
+                        type="checkbox"
+                        checked={zeroHedgingStrict}
+                        onChange={(e) => setZeroHedgingStrict(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-white/20 bg-black/30 accent-amber-400"
+                      />
+                      Zero Hedging (Strict)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      disabled={zeroHedgingStrict}
+                      value={hedgeBudgetInput}
+                      onChange={(e) => setHedgeBudgetInput(e.target.value)}
+                      placeholder="Custom budget"
+                      className="min-h-9 w-28 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white placeholder:text-white/25 focus:border-amber-400/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] text-white/40">Tone Preset</label>
+                    <select
+                      value={tonePreset}
+                      onChange={(e) => setTonePreset(e.target.value as TonePreset | '')}
+                      className="min-h-9 rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-sm text-white focus:border-amber-400/50 focus:outline-none"
+                    >
+                      <option value="" className="bg-[#16161e]">
+                        None
+                      </option>
+                      {TONE_PRESETS.map((preset) => (
+                        <option key={preset} value={preset} className="bg-[#16161e]">
+                          {preset}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeAnalysisTab === 'observer' && userFirstName.trim() && (
+              <div className="mt-3">
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/40">
+                  Current Drill Goal (optional)
+                </label>
+                <input
+                  type="text"
+                  value={drillGoal}
+                  onChange={(e) => setDrillGoal(e.target.value)}
+                  placeholder={activePassage?.title || 'e.g. Delivering with steady, unhurried control'}
+                  className="min-h-11 w-full max-w-sm rounded-lg border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white placeholder:text-white/25 focus:border-teal-400/50 focus:outline-none focus:ring-1 focus:ring-teal-400/50"
+                />
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <button
+                type="button"
+                onClick={tabMeta.onRun}
+                disabled={tabMeta.disabled}
+                className={`min-h-11 w-full rounded-lg px-5 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto ${TAB_ACCENT[activeAnalysisTab]}`}
+              >
+                {tabMeta.loading ? tabMeta.loadingLabel : tabMeta.runLabel}
+              </button>
+              {tabMeta.disabledHint && <p className="text-xs text-white/40">{tabMeta.disabledHint}</p>}
+            </div>
           </div>
         )}
       </div>
 
       {analysis && <VocalAnalysisCard analysis={analysis} />}
 
-      {executiveAnalysis && <ExecutiveAnalysisCard analysis={executiveAnalysis} />}
+      {activeAnalysisTab === 'future-self' && feedback && (
+        <FeedbackCard feedback={feedback} persona={persona} onTryAgain={handleNewAttempt} />
+      )}
 
-      {personaDiagnostic && (
+      {activeAnalysisTab === 'executive' && executiveAnalysis && (
+        <ExecutiveAnalysisCard analysis={executiveAnalysis} />
+      )}
+
+      {activeAnalysisTab === 'persona' && personaDiagnostic && (
         <PersonaDiagnosticCard diagnostic={personaDiagnostic} personaName={persona.name.trim() || 'your Future-Self'} />
       )}
 
-      {observerAnalysis && <ObserverAnalysisCard analysis={observerAnalysis} userFirstName={userFirstName} />}
+      {activeAnalysisTab === 'observer' && observerAnalysis && (
+        <ObserverAnalysisCard analysis={observerAnalysis} userFirstName={userFirstName} />
+      )}
 
-      {personaRecommendation && <PersonaRecommendationCard recommendation={personaRecommendation} />}
+      {activeAnalysisTab === 'recommend' && personaRecommendation && (
+        <PersonaRecommendationCard recommendation={personaRecommendation} />
+      )}
 
-      {alignmentScore && (
+      {activeAnalysisTab === 'alignment' && alignmentScore && (
         <PersonaAlignmentScoreCard alignment={alignmentScore} personaName={persona.name.trim() || 'your Future-Self'} />
       )}
 
@@ -747,10 +833,6 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
       )}
 
       {takeA && takeB && <TakeComparisonCard takeA={takeA} takeB={takeB} />}
-
-      {feedback && (
-        <FeedbackCard feedback={feedback} persona={persona} onTryAgain={handleNewAttempt} />
-      )}
     </div>
   )
 }
