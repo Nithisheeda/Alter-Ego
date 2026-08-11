@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { loadMasteryLog, summarizeMasteryLog } from '../lib/masteryLog'
+import { loadDiagnosticsLog, summarizeDiagnosticsLog } from '../lib/diagnosticsLog'
 
 interface MasteryAnalyticsDrawerProps {
   open: boolean
@@ -8,9 +9,13 @@ interface MasteryAnalyticsDrawerProps {
 
 export function MasteryAnalyticsDrawer({ open, onClose }: MasteryAnalyticsDrawerProps) {
   const [summary, setSummary] = useState(() => summarizeMasteryLog(loadMasteryLog()))
+  const [diagnostics, setDiagnostics] = useState(() => summarizeDiagnosticsLog(loadDiagnosticsLog()))
 
   useEffect(() => {
-    if (open) setSummary(summarizeMasteryLog(loadMasteryLog()))
+    if (open) {
+      setSummary(summarizeMasteryLog(loadMasteryLog()))
+      setDiagnostics(summarizeDiagnosticsLog(loadDiagnosticsLog()))
+    }
   }, [open])
 
   useEffect(() => {
@@ -87,6 +92,51 @@ export function MasteryAnalyticsDrawer({ open, onClose }: MasteryAnalyticsDrawer
               unit="Hz"
             />
 
+            {(diagnostics.constraintChecksLogged > 0 ||
+              diagnostics.alignmentRecent.length > 0 ||
+              diagnostics.topArchetype) && (
+              <div className="space-y-3 border-t border-white/10 pt-5">
+                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                  Persona Diagnostics
+                </p>
+
+                {diagnostics.constraintChecksLogged > 0 && (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <div className="mb-2 flex items-baseline justify-between">
+                      <p className="text-xs font-medium uppercase tracking-wide text-white/50">
+                        Constraint Pass Rate
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <PassRateStat label="Duration" rate={diagnostics.durationPassRate} />
+                      <PassRateStat label="Hedging" rate={diagnostics.hedgePassRate} />
+                    </div>
+                    <RecentResultDots results={diagnostics.recentConstraintResults} />
+                  </div>
+                )}
+
+                {diagnostics.alignmentRecent.length > 0 && (
+                  <TrendBlock
+                    title="Persona Alignment Score"
+                    average={diagnostics.alignmentAverage}
+                    values={diagnostics.alignmentRecent}
+                    color="#fb7185"
+                    unit="%"
+                  />
+                )}
+
+                {diagnostics.topArchetype && (
+                  <StatTile
+                    label="Most Recommended Persona"
+                    value={diagnostics.topArchetype}
+                    sub={`${diagnostics.archetypeCounts[diagnostics.topArchetype]} recommendation${
+                      diagnostics.archetypeCounts[diagnostics.topArchetype] === 1 ? '' : 's'
+                    }`}
+                  />
+                )}
+              </div>
+            )}
+
             <p className="text-[11px] text-white/30">
               Trend lines cover your last {Math.min(10, summary.totalReps)} take
               {summary.totalReps === 1 ? '' : 's'}. Stored only on this device.
@@ -98,11 +148,46 @@ export function MasteryAnalyticsDrawer({ open, onClose }: MasteryAnalyticsDrawer
   )
 }
 
-function StatTile({ label, value }: { label: string; value: string }) {
+function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
       <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">{label}</p>
       <p className="mt-0.5 text-xl font-semibold text-white">{value}</p>
+      {sub && <p className="mt-0.5 text-[11px] text-white/40">{sub}</p>}
+    </div>
+  )
+}
+
+function PassRateStat({ label, rate }: { label: string; rate: number | null }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-wider text-white/40">{label}</p>
+      <p
+        className={`mt-0.5 text-lg font-semibold ${
+          rate === null ? 'text-white/40' : rate >= 70 ? 'text-emerald-300' : rate >= 40 ? 'text-amber-300' : 'text-rose-300'
+        }`}
+      >
+        {rate === null ? '—' : `${rate}%`}
+      </p>
+    </div>
+  )
+}
+
+function RecentResultDots({
+  results,
+}: {
+  results: Array<{ durationPassed: boolean | null; hedgePassed: boolean | null }>
+}) {
+  if (results.length === 0) return null
+
+  return (
+    <div className="mt-3 flex gap-1.5">
+      {results.map((r, i) => {
+        const failed = r.durationPassed === false || r.hedgePassed === false
+        const passed = !failed && (r.durationPassed === true || r.hedgePassed === true)
+        const color = failed ? 'bg-rose-400' : passed ? 'bg-emerald-400' : 'bg-white/20'
+        return <span key={i} className={`h-2 w-2 rounded-full ${color}`} title={`Take ${i + 1}`} />
+      })}
     </div>
   )
 }

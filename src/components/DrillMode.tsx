@@ -5,6 +5,7 @@ import { analyzeDelivery } from '../lib/vocalAnalysis'
 import { createTakeId, revokeTakeAudio, type Take } from '../lib/takes'
 import { computePitchVarianceHz } from '../lib/pitchAnalysis'
 import { appendMasteryEntry } from '../lib/masteryLog'
+import { appendDiagnosticEntry, createDiagnosticLogId } from '../lib/diagnosticsLog'
 import { useVoiceDrill } from '../hooks/useVoiceDrill'
 import { AudioWave } from './AudioWave'
 import { AudioPlayback } from './AudioPlayback'
@@ -293,6 +294,16 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
         },
       })
       setPersonaDiagnostic(result)
+      const dc = result.deterministicConstraints
+      if (dc.duration_passed !== null || dc.hedge_passed !== null) {
+        appendDiagnosticEntry({
+          id: createDiagnosticLogId(),
+          timestamp: Date.now(),
+          kind: 'constraint',
+          durationPassed: dc.duration_passed,
+          hedgePassed: dc.hedge_passed,
+        })
+      }
     } finally {
       setPersonaDiagnosticLoading(false)
     }
@@ -325,6 +336,15 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
         targetScenario: scenarioTag,
       })
       setPersonaRecommendation(result)
+      const archetype = result.recommendedPersonaName ?? result.suggestedArchetype?.name ?? null
+      if (archetype) {
+        appendDiagnosticEntry({
+          id: createDiagnosticLogId(),
+          timestamp: Date.now(),
+          kind: 'recommendation',
+          archetype,
+        })
+      }
     } finally {
       setRecommendationLoading(false)
     }
@@ -343,6 +363,12 @@ export function DrillMode({ persona, personaReady, userFirstName, personaLibrary
         telemetry: drill.telemetry,
       })
       setAlignmentScore(result)
+      appendDiagnosticEntry({
+        id: createDiagnosticLogId(),
+        timestamp: Date.now(),
+        kind: 'alignment',
+        score: result.score,
+      })
     } finally {
       setAlignmentLoading(false)
     }
